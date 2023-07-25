@@ -8,3 +8,4 @@ edition = "2021"
 [dependencies]
 bnf = "0.5.0"
 indextree = "4.6.0"
+qp-trie = "0.8.1"

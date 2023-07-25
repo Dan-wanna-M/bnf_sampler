@@ -1,0 +1,4 @@
+<dna> ::= <sequence><digit>
+<sequence> ::= <base>|<base><sequence>
+<digit> ::= '1'|'2'|'3'|'4'
+<base> ::= '黄'|'鹤'|'皮'|'革'
