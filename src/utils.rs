@@ -1,50 +1,8 @@
-use bnf::{Grammar, Term};
 use qp_trie::Trie;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::{prelude::*, BufReader};
 use crate::sampler::VecU8Wrapper;
-pub enum SimplifiedTerm {
-    Nonterminal(String),
-    Terminals(Trie<Vec<u8>, ()>),
-}
-pub fn simplify_grammar_tree(grammar: &Grammar) -> HashMap<&str, HashSet<Vec<Term>>> {
-    let mut simplified_grammar: HashMap<&str, HashSet<Vec<Term>>> = HashMap::new();
-    for i in grammar.productions_iter() {
-        let key = match &i.lhs {
-            Term::Terminal(x) => x,
-            Term::Nonterminal(x) => x,
-        };
-        simplified_grammar
-            .entry(key)
-            .or_insert(HashSet::new())
-            .extend(i.rhs_iter().map(|x| {
-                let mut temp_vec: Vec<Term> = vec![];
-                let mut temp_string: Option<String> = None;
-                for i in x.terms_iter() {
-                    match i {
-                        Term::Terminal(x) => match temp_string {
-                            Some(value) => temp_string = Some(value + x),
-                            None => temp_string = Some(x.clone()),
-                        },
-                        Term::Nonterminal(x) => {
-                            if let Some(value) = temp_string {
-                                temp_vec.push(Term::Terminal(value));
-                                temp_string = None;
-                            }
-                            temp_vec.push(i.clone());
-                        }
-                    }
-                }
-                if let Some(value) = temp_string {
-                    temp_vec.push(Term::Terminal(value));
-                }
-                temp_vec
-            }));
-    }
-    let simplified_grammar: HashMap<&str, HashSet<Vec<Term>>> = HashMap::new();
-    simplified_grammar
-}
 
 pub fn read_world_vocab(file_name: &str) -> (Trie<VecU8Wrapper, u32>, HashMap<u32, String>) {
     let file = File::open(file_name).expect(format!("{file_name} does not exist.").as_str());

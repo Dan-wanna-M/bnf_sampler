@@ -3,19 +3,18 @@ use qp_trie::Trie;
 use std::borrow::Borrow;
 use std::{collections::*, time::Instant};
 use std::{fs, vec};
+
+use crate::sampler::SimplifiedGrammar;
 mod utils;
 mod sampler;
 
 fn main() {
     let input = fs::read_to_string("./grammar.bnf").expect("grammar.bnf should exist.");
     let input = String::from_utf8(utils::fix_utf8_escape(&input)).unwrap();
-    let grammar: Grammar = input.parse().unwrap();
     let (tree, map) = utils::read_world_vocab("vocab.txt");
-    // println!("{:#?}", Utils::SimplifyGrammarTree(&grammar));
+    let grammar = SimplifiedGrammar::new(&input);
     let binding = Term::Nonterminal("dna".to_string());
-    let grammar = utils::simplify_grammar_tree(&grammar);
-    println!("{:?}", grammar);
-    let mut machine = sampler::PushDownAutomata::new(&grammar, &binding, &tree);
+    let mut machine = sampler::PushDownAutomata::new(&grammar, &binding, tree);
     let result: Vec<&str> = machine
         .all_possible_next_tokens(None)
         .unwrap()
@@ -42,7 +41,7 @@ fn main() {
                 break;
             }
         };
-        println!("{:?}", machine);
+        // println!("{:?}", machine);
         let end = now.elapsed();
         times.push(end.as_secs_f64());
         println!("Time used: {:?}", end);
