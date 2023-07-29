@@ -1,4 +1,4 @@
-<dna> ::= <sequence><digit>
+<dna> ::= '牛''马'<sequence>'牛''马''牛''马'<digit>'牛''马'
 <sequence> ::= <base>|<base><sequence>
 <digit> ::= '1'|'2'|'3'|'4'
-<base> ::='\x04'|'\x80'
+<base> ::='\x04'|'黄''鹤'
