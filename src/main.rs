@@ -13,8 +13,7 @@ fn main() {
     let input = String::from_utf8(utils::fix_utf8_escape(&input)).unwrap();
     let (tree, map) = utils::read_world_vocab("vocab.txt");
     let grammar = SimplifiedGrammar::new(&input);
-    let binding = Term::Nonterminal("dna".to_string());
-    let mut machine = sampler::PushDownAutomata::new(&grammar, &binding, tree);
+    let mut machine = sampler::PushDownAutomata::new(&grammar, "dna", tree);
     let result: Vec<&str> = machine
         .all_possible_next_tokens(None)
         .unwrap()
@@ -24,6 +23,11 @@ fn main() {
     println!("{:?}", result);
     let mut times: Vec<f64> = vec![];
     // println!("{:?}", machine.stacks);
+    let now = Instant::now();
+    machine.all_possible_next_tokens(Some("statistics".as_bytes()));
+    let end = now.elapsed();
+    println!("Time used: {:?}", end);
+    return;
     loop {
         // println!("{:?}", machine.stacks);
         println!("Input a terminal: ");
@@ -45,7 +49,7 @@ fn main() {
         let end = now.elapsed();
         times.push(end.as_secs_f64());
         println!("Time used: {:?}", end);
-        println!("{:?}", result);
+        // println!("{:?}", result);
         if result.is_empty() {
             break;
         }

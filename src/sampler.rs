@@ -6,15 +6,15 @@ use std::{collections::*, time::Instant};
 #[derive(Clone, Debug)]
 pub enum SimplifiedTerms {
     Terms(Vec<String>),
-    SimplifiedTerminals(Trie<Vec<u8>, ()>)
+    SimplifiedTerminals(Trie<Vec<u8>, ()>),
 }
 
 #[derive(PartialEq, Clone, Debug, Copy)]
 pub enum StackItem<'a> {
-    Nonterminal(&'a str),
-    Terminal(&'a str),
-    Byte(u8),
+    Nonterminal(usize),
+    Terminal(&'a [u8]),
 }
+
 #[derive(PartialEq, Clone, Debug)]
 pub struct VecU8Wrapper(pub Vec<u8>);
 
@@ -44,8 +44,12 @@ pub struct PushDownAutomata<'a> {
     grammar: &'a SimplifiedGrammar,
     tokens_tree: Trie<VecU8Wrapper, u32>,
 }
+
 #[derive(Clone, Debug)]
-pub struct SimplifiedGrammar(HashMap<String, HashSet<Vec<Term>>>);
+pub struct SimplifiedGrammar {
+    nonterminal_id_to_expression: HashMap<usize, HashSet<Vec<Term>>>,
+    nonterminal_to_terminal_id: HashMap<String, usize>,
+}
 
 impl SimplifiedGrammar {
     pub fn new(input: &str) -> Self {
@@ -83,29 +87,39 @@ impl SimplifiedGrammar {
                     temp_vec
                 }));
         }
-        SimplifiedGrammar(simplified_grammar)
+        let nonterminal_to_terminal_id: HashMap<String, usize> = simplified_grammar
+            .iter()
+            .enumerate()
+            .map(|(i, (key, _))| (key.clone(), i))
+            .collect();
+        let nonterminal_id_to_expression: HashMap<usize, HashSet<Vec<Term>>> = simplified_grammar
+            .iter()
+            .map(|(key, value)| (nonterminal_to_terminal_id[key], value.clone()))
+            .collect();
+        SimplifiedGrammar {
+            nonterminal_to_terminal_id,
+            nonterminal_id_to_expression,
+        }
     }
 }
 
 enum BytesMatchResult<'b> {
     AllMatched,
     PartiallyMatched(&'b [u8]),
-    Failed,
+    Failed(usize),
 }
 
 impl<'a> PushDownAutomata<'a> {
     /// Create a new PushDownAutomata with simplified grammar
     pub fn new(
         grammar: &'a SimplifiedGrammar,
-        start_term: &'a Term,
+        start_term: &str,
         tokens_tree: Trie<VecU8Wrapper, u32>,
     ) -> PushDownAutomata<'a> {
-        let start_nonterminal = match start_term {
-            Term::Nonterminal(x) => x,
-            _ => panic!("Start term should be nonterminal"),
-        };
         let mut stacks = Vec::new();
-        stacks.push(vec![StackItem::Nonterminal(start_nonterminal)]);
+        stacks.push(vec![StackItem::Nonterminal(
+            grammar.nonterminal_to_terminal_id[start_term],
+        )]);
         PushDownAutomata {
             stacks,
             grammar,
@@ -121,7 +135,7 @@ impl<'a> PushDownAutomata<'a> {
         if !self.accept_tokens(previous_tokens) {
             return None;
         }
-        println!("Time used for accepting tokens: {:?}", now.elapsed());
+        // println!("Time used for accepting tokens: {:?}", now.elapsed());
         let mut token_ids: HashSet<u32> = HashSet::new();
         let mut current_stack: Vec<StackItem> = vec![];
         for (prefix, stack) in self.stacks.iter().map(|x| {
@@ -129,24 +143,25 @@ impl<'a> PushDownAutomata<'a> {
             let mut temp = vec![];
             for i in (0..x.len()).rev() {
                 match x[i] {
-                    StackItem::Byte(_) => index = i,
+                    StackItem::Terminal(_) => index = i,
                     _ => break,
                 }
             }
             for i in (&x[index..x.len()]).into_iter().rev() {
                 match i {
-                    StackItem::Byte(value) => temp.push(*value),
-                    _ => panic!("Only bytes here."),
+                    StackItem::Terminal(value) => temp.extend(*value),
+                    _ => panic!("Only terminals here."),
                 }
             }
             (temp, x)
         }) {
             let now = Instant::now();
+            let mut failed_prefixs: Trie<VecU8Wrapper, ()> = Trie::new();
             for (VecU8Wrapper(token), &token_id) in self.tokens_tree.iter_prefix(
                 self.tokens_tree
                     .longest_common_prefix(&VecU8Wrapper(prefix)),
             ) {
-                if token_ids.contains(&token_id) {
+                if token_ids.contains(&token_id)||failed_prefixs.contains_key(failed_prefixs.longest_common_prefix(&VecU8Wrapper(token.clone()))) {
                     continue;
                 }
                 current_stack.extend(stack);
@@ -157,13 +172,16 @@ impl<'a> PushDownAutomata<'a> {
                     0,
                     false,
                     &mut |_| {},
+                    &mut |bytes, index|{
+                        failed_prefixs.insert(VecU8Wrapper(bytes[..index+1].into_iter().cloned().collect()), ());
+                    }
                 );
                 if result {
                     token_ids.insert(token_id);
                 }
                 current_stack.clear();
             }
-            println!("Time used for one stack: {:?}", now.elapsed());
+            //println!("Time used for one stack: {:?}", now.elapsed());
         }
         Some(token_ids)
     }
@@ -187,6 +205,7 @@ impl<'a> PushDownAutomata<'a> {
                             &mut |temp_stack: &Vec<StackItem<'_>>| {
                                 self.stacks.push(temp_stack.clone());
                             },
+                            &mut |_, _|{}
                         );
                     }
                     None => {
@@ -209,12 +228,6 @@ impl<'a> PushDownAutomata<'a> {
         // println!("{:?}", self.stacks);
     }
 
-    fn convert_terminal_to_bytes(stack: &mut Vec<StackItem<'a>>, popped_terminal: &str) {
-        for j in popped_terminal.as_bytes().into_iter().rev() {
-            stack.push(StackItem::Byte(*j));
-        }
-    }
-
     fn match_stack_to_bytes<'b>(
         stack: &mut Vec<StackItem<'a>>,
         bytes: Option<&'b [u8]>,
@@ -222,87 +235,84 @@ impl<'a> PushDownAutomata<'a> {
         let mut i = 0;
         if let Some(bytes) = bytes {
             while i < bytes.len() {
-                let byte1 = bytes[i];
                 match stack.pop() {
                     Some(value) => match value {
-                        StackItem::Byte(byte) => {
-                            if byte != byte1 {
-                                return BytesMatchResult::Failed;
-                            }
-                            i += 1;
-                        }
                         StackItem::Nonterminal(_) => {
                             stack.push(value);
                             return BytesMatchResult::PartiallyMatched(&bytes[i..]);
                         }
                         StackItem::Terminal(terminal) => {
-                            Self::convert_terminal_to_bytes(stack, terminal);
+                            for j in 0..terminal.len() {
+                                if terminal[j] == bytes[i] {
+                                    i += 1;
+                                    if i == bytes.len() {
+                                        if j != terminal.len() - 1 {
+                                            stack.push(StackItem::Terminal(&terminal[j + 1..]))
+                                        }
+                                        return BytesMatchResult::AllMatched;
+                                    }
+                                } else {
+                                    return BytesMatchResult::Failed(i);
+                                }
+                            }
                         }
                     },
-                    None => return BytesMatchResult::Failed,
+                    None => return BytesMatchResult::Failed(i),
                 }
             }
         }
         return BytesMatchResult::AllMatched;
     }
 
-    fn find_stacks_matching_bytes<'b, F>(
+    fn find_stacks_matching_bytes<'b, F1, F2>(
         stack: &mut Vec<StackItem<'a>>,
         grammar: &'a SimplifiedGrammar,
         bytes: Option<&'b [u8]>,
         layer: i8,
         find_all: bool,
-        after_finding_stack: &mut F,
+        after_finding_stack: &mut F1,
+        after_match_failed:&mut F2
     ) -> bool
     where
-        F: FnMut(&Vec<StackItem<'a>>),
+        F1: FnMut(&Vec<StackItem<'a>>),
+        F2: FnMut(&'b [u8], usize),
     {
         let mut bytes = bytes;
         let top = match stack.pop() {
             Some(value) => {
-                let mut result = None;
-                let mut flag = false;
                 match value {
-                    StackItem::Nonterminal(value2) => result = Some(value2),
+                    StackItem::Nonterminal(value2) => value2,
                     StackItem::Terminal(value2) => {
-                        flag = true;
-                        Self::convert_terminal_to_bytes(stack, value2);
-                    }
-                    StackItem::Byte(_) => {
                         stack.push(value);
-                        flag = true
-                    }
-                };
-                if flag {
-                    match Self::match_stack_to_bytes(stack, bytes) {
-                        BytesMatchResult::Failed => {
-                            return false;
-                        }
-                        BytesMatchResult::AllMatched => {
-                            after_finding_stack(&stack);
-                            return true;
-                        }
-                        BytesMatchResult::PartiallyMatched(new_bytes) => {
-                            bytes = Some(new_bytes);
-                            match stack.pop().expect("The stack should not be empty.") {
-                                StackItem::Nonterminal(x) => result = Some(x),
-                                _ => panic!("The top item should be nonterminal."),
+                        match Self::match_stack_to_bytes(stack, bytes) {
+                            BytesMatchResult::Failed(i) => {
+                                after_match_failed(bytes.unwrap(), i);
+                                return false;
+                            }
+                            BytesMatchResult::AllMatched => {
+                                after_finding_stack(&stack);
+                                return true;
+                            }
+                            BytesMatchResult::PartiallyMatched(new_bytes) => {
+                                bytes = Some(new_bytes);
+                                match stack.pop().expect("The stack should not be empty.") {
+                                    StackItem::Nonterminal(x) => x,
+                                    _ => panic!("The top item should be nonterminal."),
+                                }
                             }
                         }
-                    };
+                    }
                 }
-                result.unwrap()
             }
             None => return false,
         };
         let mut found = false;
-        let SimplifiedGrammar(actual_grammar) = grammar;
-        for expression in actual_grammar[top].iter() {
+        for expression in grammar.nonterminal_id_to_expression[&top].iter() {
             let temp_stack = &mut stack.clone();
             for term in expression.iter().rev() {
                 temp_stack.push(match term {
-                    Term::Terminal(value) => StackItem::Terminal(&value),
-                    Term::Nonterminal(value) => StackItem::Nonterminal(&value),
+                    Term::Terminal(value) => StackItem::Terminal(value.as_bytes()),
+                    Term::Nonterminal(value) => StackItem::Nonterminal(grammar.nonterminal_to_terminal_id[value]),
                 });
             }
             // println!("{layer}start=>{:?}", stack);
@@ -313,6 +323,7 @@ impl<'a> PushDownAutomata<'a> {
                 layer + 1,
                 find_all,
                 after_finding_stack,
+                after_match_failed
             );
             // println!("{layer}end=>{:?}", stack);
             found |= temp;
