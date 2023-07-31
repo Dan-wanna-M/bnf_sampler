@@ -5,27 +5,25 @@ use std::io::{prelude::*, BufReader};
 use crate::sampler::VecU8Wrapper;
 
 pub fn read_world_vocab(file_name: &str) -> (Trie<VecU8Wrapper, u32>, HashMap<u32, String>) {
-    let file = File::open(file_name).expect(format!("{file_name} does not exist.").as_str());
+    let file = File::open(file_name).unwrap();
     let reader = BufReader::new(file);
     let mut map: HashMap<u32, String> = HashMap::new();
     let mut tree = Trie::<VecU8Wrapper, u32>::new();
     for line in reader.lines() {
         let line = line.unwrap();
-        let mut start = line.find(' ').expect(
-            format!(
+        let mut start = line.find(' ').unwrap_or_else(||
+            panic!(
                 "Invalid format. Ensure this vocab file{file_name} belongs to RWKV world model."
-            )
-            .as_str(),
+            ),
         );
-        let mut end = line.rfind(' ').expect(
-            format!(
+        let mut end = line.rfind(' ').unwrap_or_else(||
+            panic!(
                 "Invalid format. Ensure this vocab file{file_name} belongs to RWKV world model."
-            )
-            .as_str(),
+            ),
         );
         let token_id = line[..start]
             .parse::<u32>()
-            .expect(format!("{line} cannot be parsed.").as_str());
+            .unwrap_or_else(|x|panic!("{line} cannot be parsed due to {x}."));
         start += 1;
         end -= 1;
         if line.chars().nth(start).unwrap() == 'b' {

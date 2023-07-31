@@ -1,12 +1,14 @@
-use bnf::{Grammar, Term};
-use qp_trie::Trie;
-use std::borrow::Borrow;
-use std::{collections::*, time::Instant};
+use std::time::Instant;
 use std::{fs, vec};
 
 use crate::sampler::SimplifiedGrammar;
-mod utils;
 mod sampler;
+mod utils;
+mod allocator;
+
+use mimalloc::MiMalloc;
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() {
     let input = fs::read_to_string("./grammar.bnf").expect("grammar.bnf should exist.");
@@ -17,19 +19,20 @@ fn main() {
     let result: Vec<&str> = machine
         .all_possible_next_tokens(None)
         .unwrap()
-        .into_iter()
-        .map(|x| map[&x].as_str())
+        .iter()
+        .map(|x| map[x].as_str())
         .collect();
     println!("{:?}", result);
     let mut times: Vec<f64> = vec![];
     // println!("{:?}", machine.stacks);
     let now = Instant::now();
-    machine.all_possible_next_tokens(Some("statistics".as_bytes()));
+    // machine.all_possible_next_tokens(Some("statistics".as_bytes()));
     let end = now.elapsed();
     println!("Time used: {:?}", end);
-    return;
+    // return;
     loop {
         // println!("{:?}", machine.stacks);
+        // println!("{:?}",grammar.nonterminal_to_terminal_id);
         println!("Input a terminal: ");
         let mut input = String::new();
         std::io::stdin()
@@ -39,7 +42,7 @@ fn main() {
         // println!("{:?}", machine.stacks);
         let input = utils::fix_utf8_escape(input.trim());
         let result: Vec<&str> = match machine.all_possible_next_tokens(Some(&input)) {
-            Some(result) => result.into_iter().map(|x| map[&x].as_str()).collect(),
+            Some(result) => result.iter().map(|x| map[x].as_str()).collect(),
             None => {
                 println!("Invalid input.");
                 break;

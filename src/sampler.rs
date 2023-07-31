@@ -3,11 +3,6 @@ use qp_trie::Trie;
 use std::borrow::Borrow;
 use std::vec;
 use std::{collections::*, time::Instant};
-#[derive(Clone, Debug)]
-pub enum SimplifiedTerms {
-    Terms(Vec<String>),
-    SimplifiedTerminals(Trie<Vec<u8>, ()>),
-}
 
 #[derive(PartialEq, Clone, Debug, Copy)]
 pub enum StackItem<'a> {
@@ -30,25 +25,29 @@ impl qp_trie::Break for VecU8Wrapper {
 
     #[inline]
     fn empty<'a>() -> &'a [u8] {
-        <&'a [u8]>::from(<&'a [u8]>::default())
+        <&'a [u8]>::default()
     }
 
     #[inline]
     fn find_break(&self, loc: usize) -> &[u8] {
-        From::from(&self.0[..loc])
+        &self.0[..loc]
     }
 }
 #[derive(Clone, Debug)]
 pub struct PushDownAutomata<'a> {
-    stacks: Vec<Vec<StackItem<'a>>>,
+    pub stacks: Vec<Vec<StackItem<'a>>>,
     grammar: &'a SimplifiedGrammar,
     tokens_tree: Trie<VecU8Wrapper, u32>,
+    token_ids: HashSet<u32>,
+    current_stack: Vec<StackItem<'a>>,
+    current_token: VecU8Wrapper,
+    current_prefix: VecU8Wrapper,
 }
 
 #[derive(Clone, Debug)]
 pub struct SimplifiedGrammar {
     nonterminal_id_to_expression: HashMap<usize, HashSet<Vec<Term>>>,
-    nonterminal_to_terminal_id: HashMap<String, usize>,
+    pub nonterminal_to_terminal_id: HashMap<String, usize>,
 }
 
 impl SimplifiedGrammar {
@@ -116,81 +115,88 @@ impl<'a> PushDownAutomata<'a> {
         start_term: &str,
         tokens_tree: Trie<VecU8Wrapper, u32>,
     ) -> PushDownAutomata<'a> {
-        let mut stacks = Vec::new();
-        stacks.push(vec![StackItem::Nonterminal(
+        let stacks = vec![vec![StackItem::Nonterminal(
             grammar.nonterminal_to_terminal_id[start_term],
-        )]);
+        )]];
+        let token_ids: HashSet<u32> = HashSet::with_capacity(64);
+        let current_stack: Vec<StackItem> = Vec::with_capacity(20);
+        let current_token = VecU8Wrapper(Vec::with_capacity(20));
+        let current_prefix = VecU8Wrapper(Vec::with_capacity(20));
         PushDownAutomata {
             stacks,
             grammar,
             tokens_tree,
+            token_ids,
+            current_stack,
+            current_token,
+            current_prefix,
         }
     }
 
-    pub fn all_possible_next_tokens<'b>(
+    pub fn all_possible_next_tokens(
         &mut self,
-        previous_tokens: Option<&'b [u8]>,
-    ) -> Option<HashSet<u32>> {
+        previous_tokens: Option<&[u8]>,
+    ) -> Option<&HashSet<u32>> {
         let now = Instant::now();
         if !self.accept_tokens(previous_tokens) {
             return None;
         }
         // println!("Time used for accepting tokens: {:?}", now.elapsed());
-        let mut token_ids: HashSet<u32> = HashSet::new();
-        let mut current_stack: Vec<StackItem> = vec![];
-        for (prefix, stack) in self.stacks.iter().map(|x| {
-            let mut index = 0;
-            let mut temp = vec![];
-            for i in (0..x.len()).rev() {
-                match x[i] {
-                    StackItem::Terminal(_) => index = i,
+        self.token_ids.clear();
+        for stack in self.stacks.iter() {
+            for i in stack.iter().rev() {
+                match i {
+                    StackItem::Terminal(value) => self.current_prefix.0.extend(*value),
                     _ => break,
                 }
             }
-            for i in (&x[index..x.len()]).into_iter().rev() {
-                match i {
-                    StackItem::Terminal(value) => temp.extend(*value),
-                    _ => panic!("Only terminals here."),
-                }
-            }
-            (temp, x)
-        }) {
             let now = Instant::now();
             let mut failed_prefixs: Trie<VecU8Wrapper, ()> = Trie::new();
-            for (VecU8Wrapper(token), &token_id) in self.tokens_tree.iter_prefix(
-                self.tokens_tree
-                    .longest_common_prefix(&VecU8Wrapper(prefix)),
-            ) {
-                if token_ids.contains(&token_id)||failed_prefixs.contains_key(failed_prefixs.longest_common_prefix(&VecU8Wrapper(token.clone()))) {
+            for (VecU8Wrapper(token), &token_id) in self
+                .tokens_tree
+                .iter_prefix(self.tokens_tree.longest_common_prefix(&self.current_prefix))
+            {
+                self.current_token.0.extend(token);
+                if self.token_ids.contains(&token_id)
+                    || failed_prefixs
+                        .contains_key(failed_prefixs.longest_common_prefix(&self.current_token))
+                {
                     continue;
                 }
-                current_stack.extend(stack);
+                self.current_stack.extend(stack);
                 let result = Self::find_stacks_matching_bytes(
-                    &mut current_stack,
-                    &self.grammar,
+                    &mut self.current_stack,
+                    self.grammar,
                     Some(token),
                     0,
                     false,
                     &mut |_| {},
-                    &mut |bytes, index|{
-                        failed_prefixs.insert(VecU8Wrapper(bytes[..index+1].into_iter().cloned().collect()), ());
-                    }
+                    &mut |bytes, index| {
+                        failed_prefixs.insert(VecU8Wrapper(bytes[..index + 1].to_vec()), ());
+                    },
                 );
                 if result {
-                    token_ids.insert(token_id);
+                    self.token_ids.insert(token_id);
                 }
-                current_stack.clear();
+                self.current_stack.clear();
+                self.current_token.0.clear();
+                self.current_prefix.0.clear();
             }
             //println!("Time used for one stack: {:?}", now.elapsed());
         }
-        Some(token_ids)
+        Some(&self.token_ids)
     }
     #[must_use]
-    fn accept_tokens<'b>(&mut self, bytes: Option<&'b [u8]>) -> bool {
-        let len = self.stacks.len();
+    fn accept_tokens(&mut self, bytes: Option<&[u8]>) -> bool {
         let mut find_stacks_matching_bytes = |bytes| {
-            let mut stack: Vec<StackItem> =
-                Vec::with_capacity(self.stacks.iter().map(|x| x.len()).max().unwrap());
+            let len = self.stacks.len();
+            let mut stack: Vec<StackItem> = Vec::with_capacity(
+                self.stacks
+                    .iter()
+                    .map(|x| x.len())
+                    .max()
+                    .unwrap_or_default(),
+            );
             let mut accepted = false;
             for i in 0..len {
                 stack.extend(&self.stacks[i]);
@@ -198,14 +204,14 @@ impl<'a> PushDownAutomata<'a> {
                     Some(_) => {
                         accepted |= Self::find_stacks_matching_bytes(
                             &mut stack,
-                            &self.grammar,
+                            self.grammar,
                             bytes,
                             0,
                             true,
                             &mut |temp_stack: &Vec<StackItem<'_>>| {
                                 self.stacks.push(temp_stack.clone());
                             },
-                            &mut |_, _|{}
+                            &mut |_, _| {},
                         );
                     }
                     None => {
@@ -219,12 +225,11 @@ impl<'a> PushDownAutomata<'a> {
             }
             accepted
         };
-        if bytes.is_some() {
-            if !find_stacks_matching_bytes(bytes) {
-                return false;
-            }
+        let result = find_stacks_matching_bytes(bytes);
+        if bytes.is_some() && !result {
+            return false;
         }
-        find_stacks_matching_bytes(None)
+        result|find_stacks_matching_bytes(None)
         // println!("{:?}", self.stacks);
     }
 
@@ -271,7 +276,7 @@ impl<'a> PushDownAutomata<'a> {
         layer: i8,
         find_all: bool,
         after_finding_stack: &mut F1,
-        after_match_failed:&mut F2
+        after_match_failed: &mut F2,
     ) -> bool
     where
         F1: FnMut(&Vec<StackItem<'a>>),
@@ -279,34 +284,33 @@ impl<'a> PushDownAutomata<'a> {
     {
         let mut bytes = bytes;
         let top = match stack.pop() {
-            Some(value) => {
-                match value {
-                    StackItem::Nonterminal(value2) => value2,
-                    StackItem::Terminal(value2) => {
-                        stack.push(value);
-                        match Self::match_stack_to_bytes(stack, bytes) {
-                            BytesMatchResult::Failed(i) => {
-                                after_match_failed(bytes.unwrap(), i);
-                                return false;
-                            }
-                            BytesMatchResult::AllMatched => {
-                                after_finding_stack(&stack);
-                                return true;
-                            }
-                            BytesMatchResult::PartiallyMatched(new_bytes) => {
-                                bytes = Some(new_bytes);
-                                match stack.pop().expect("The stack should not be empty.") {
-                                    StackItem::Nonterminal(x) => x,
-                                    _ => panic!("The top item should be nonterminal."),
-                                }
+            Some(value) => match value {
+                StackItem::Nonterminal(value2) => value2,
+                StackItem::Terminal(_) => {
+                    stack.push(value);
+                    match Self::match_stack_to_bytes(stack, bytes) {
+                        BytesMatchResult::Failed(i) => {
+                            after_match_failed(bytes.unwrap(), i);
+                            return false;
+                        }
+                        BytesMatchResult::AllMatched => {
+                            after_finding_stack(stack);
+                            return true;
+                        }
+                        BytesMatchResult::PartiallyMatched(new_bytes) => {
+                            bytes = Some(new_bytes);
+                            match stack.pop().expect("The stack should not be empty.") {
+                                StackItem::Nonterminal(x) => x,
+                                _ => panic!("The top item should be nonterminal."),
                             }
                         }
                     }
                 }
-            }
+            },
             None => return false,
         };
         let mut found = false;
+        let initial_stack_len = stack.len();
         for expression in grammar.nonterminal_id_to_expression[&top].iter() {
             let temp_stack = &mut stack.clone();
             for term in expression.iter().rev() {
@@ -325,7 +329,7 @@ impl<'a> PushDownAutomata<'a> {
                 after_finding_stack,
                 after_match_failed
             );
-            // println!("{layer}end=>{:?}", stack);
+            //println!("{layer}end=>{:?}", stack);
             found |= temp;
             if !find_all && found {
                 return found;
