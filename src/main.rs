@@ -1,10 +1,11 @@
 use std::time::Instant;
 use std::{fs, vec};
 
-use crate::sampler::SimplifiedGrammar;
+mod simplified_grammar;
 mod sampler;
 mod utils;
-mod allocator;
+mod trie;
+mod stack;
 
 use mimalloc::MiMalloc;
 #[global_allocator]
@@ -14,8 +15,8 @@ fn main() {
     let input = fs::read_to_string("./grammar.bnf").expect("grammar.bnf should exist.");
     let input = String::from_utf8(utils::fix_utf8_escape(&input)).unwrap();
     let (tree, map) = utils::read_world_vocab("vocab.txt");
-    let grammar = SimplifiedGrammar::new(&input);
-    let mut machine = sampler::PushDownAutomata::new(&grammar, "dna", tree);
+    let grammar = simplified_grammar::SimplifiedGrammar::new(&input);
+    let mut machine = sampler::PushDownAutomata::new(&grammar, "dna", tree, 8192);
     let result: Vec<&str> = machine
         .all_possible_next_tokens(None)
         .unwrap()
@@ -26,9 +27,13 @@ fn main() {
     let mut times: Vec<f64> = vec![];
     // println!("{:?}", machine.stacks);
     let now = Instant::now();
-    // machine.all_possible_next_tokens(Some("statistics".as_bytes()));
+    for i in 0..1
+    {
+        machine.all_possible_next_tokens(Some("statistics".as_bytes()));
+    }
+
     let end = now.elapsed();
-    println!("Time used: {:?}", end);
+    println!("Time used: {:?}", end/1);
     // return;
     loop {
         // println!("{:?}", machine.stacks);

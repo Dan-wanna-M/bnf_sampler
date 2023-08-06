@@ -1,13 +1,62 @@
 use qp_trie::Trie;
-use std::collections::HashMap;
+use std::borrow::Borrow;
+use rustc_hash::FxHashMap;
 use std::fs::File;
 use std::io::{prelude::*, BufReader};
-use crate::sampler::VecU8Wrapper;
+#[derive(PartialEq, Clone, Debug, Copy, Eq, Hash)]
+pub struct NonterminalID(pub usize);
 
-pub fn read_world_vocab(file_name: &str) -> (Trie<VecU8Wrapper, u32>, HashMap<u32, String>) {
+#[derive(PartialEq, Clone, Debug)]
+pub struct VecU8Wrapper(pub Vec<u8>);
+
+impl Borrow<[u8]> for VecU8Wrapper {
+    #[inline]
+    fn borrow(&self) -> &[u8] {
+        self.0.as_slice()
+    }
+}
+
+impl qp_trie::Break for VecU8Wrapper {
+    type Split = [u8];
+
+    #[inline]
+    fn empty<'a>() -> &'a [u8] {
+        <&'a [u8]>::default()
+    }
+
+    #[inline]
+    fn find_break(&self, loc: usize) -> &[u8] {
+        &self.0[..loc]
+    }
+}
+
+#[derive(PartialEq, Clone, Debug)]
+pub struct SliceU8Wrapper<'a>(pub &'a [u8]);
+
+impl<'a> Borrow<[u8]> for SliceU8Wrapper<'a> {
+    #[inline]
+    fn borrow(&self) -> &[u8] {
+        self.0
+    }
+}
+
+impl<'a> qp_trie::Break for SliceU8Wrapper<'a> {
+    type Split = [u8];
+
+    #[inline]
+    fn empty<'b>() -> &'b [u8] {
+        <&'b [u8]>::default()
+    }
+
+    #[inline]
+    fn find_break(&self, loc: usize) -> &[u8] {
+        &self.0[..loc]
+    }
+}
+pub fn read_world_vocab(file_name: &str) -> (Trie<VecU8Wrapper, u32>, FxHashMap<u32, String>) {
     let file = File::open(file_name).unwrap();
     let reader = BufReader::new(file);
-    let mut map: HashMap<u32, String> = HashMap::new();
+    let mut map: FxHashMap<u32, String> = FxHashMap::default();
     let mut tree = Trie::<VecU8Wrapper, u32>::new();
     for line in reader.lines() {
         let line = line.unwrap();
