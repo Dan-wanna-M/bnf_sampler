@@ -58,7 +58,7 @@ impl<'a, T: Copy> Stack<'a, T> {
     }
 
     pub fn copy_from_slice(&mut self, source: &[T]) {
-        assert!(self.top==0);
+        assert!(self.top == 0);
         assert!(self.buffer.len() >= source.len());
         for i in 0..source.len() {
             self.buffer[i] = Some(source[i]);
@@ -66,26 +66,23 @@ impl<'a, T: Copy> Stack<'a, T> {
         self.top = source.len();
     }
 
-    pub fn to_vec(&self)->Vec<T>
-    {
+    pub fn to_vec(&self) -> Vec<T> {
         let mut temp = Vec::with_capacity(self.top);
-        for i in 0..self.top
-        {
-            temp.push(self.buffer[i].unwrap_or_else(||panic!("The popped value should be valid.")));
+        for i in 0..self.top {
+            temp.push(
+                self.buffer[i].unwrap_or_else(|| panic!("The popped value should be valid.")),
+            );
         }
         temp
     }
 
-    pub fn len(&self)->usize
-    {
+    pub fn len(&self) -> usize {
         self.top
     }
 
-    pub fn copy_from(&mut self, source: &Self)
-    {
-        assert!(self.top==0);
-        for i in 0..source.top
-        {
+    pub fn copy_from(&mut self, source: &Self) {
+        assert!(self.top == 0);
+        for i in 0..source.top {
             self.buffer[i] = source.buffer[i];
         }
         self.top = source.top;

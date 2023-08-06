@@ -1,13 +1,20 @@
-use rustc_hash::FxHashMap;
-use rustc_hash::FxHashSet;
+use crate::trie::TerminalsTrie;
+use crate::trie::TrieNodeID;
 use crate::utils::NonterminalID;
 use bnf::{Grammar, Term};
+use rustc_hash::FxHashMap;
+use rustc_hash::FxHashSet;
 #[derive(Clone, Debug)]
 pub struct SimplifiedGrammar {
-    pub nonterminal_id_to_expression: FxHashMap<NonterminalID, FxHashSet<Vec<Term>>>,
+    pub nonterminal_id_to_expression: FxHashMap<NonterminalID, SimplifiedExpressions>,
     pub nonterminal_to_terminal_id: FxHashMap<String, NonterminalID>,
+    pub terminals_trie: TerminalsTrie,
 }
-
+#[derive(Clone, Debug)]
+pub enum SimplifiedExpressions {
+    Expressions(FxHashSet<Vec<Term>>),
+    Terminals(TrieNodeID),
+}
 impl SimplifiedGrammar {
     pub fn new(input: &str) -> Self {
         let grammar: Grammar = input.parse().unwrap();
@@ -49,13 +56,42 @@ impl SimplifiedGrammar {
             .enumerate()
             .map(|(i, (key, _))| (key.clone(), NonterminalID(i)))
             .collect();
-        let nonterminal_id_to_expression: FxHashMap<NonterminalID, FxHashSet<Vec<Term>>> = simplified_grammar
-            .iter()
-            .map(|(key, value)| (nonterminal_to_terminal_id[key], value.clone()))
+        let mut terminals_arena = TerminalsTrie::new();
+        let new_simplified_grammar: FxHashMap<String, SimplifiedExpressions> = simplified_grammar
+            .into_iter()
+            .map(|(k, v)| {
+                if v.iter().all(|terms| {
+                    terms.len() == 1
+                        && match terms.last().unwrap() {
+                            Term::Terminal(_) => true,
+                            Term::Nonterminal(_) => false,
+                        }
+                }) {
+                    for i in v.into_iter() {
+                        let value = match i.last().unwrap() {
+                            Term::Terminal(value) => value,
+                            _ => panic!("There should only be terminals."),
+                        };
+                        terminals_arena.add(value.as_bytes(), nonterminal_to_terminal_id[&k]);
+                    }
+                    let v = SimplifiedExpressions::Terminals(
+                        terminals_arena.roots[&nonterminal_to_terminal_id[&k]],
+                    );
+                    (k, v)
+                } else {
+                    (k, SimplifiedExpressions::Expressions(v))
+                }
+            })
             .collect();
+        let nonterminal_id_to_expression: FxHashMap<NonterminalID, SimplifiedExpressions> =
+            new_simplified_grammar
+                .iter()
+                .map(|(key, value)| (nonterminal_to_terminal_id[key], value.clone()))
+                .collect();
         SimplifiedGrammar {
             nonterminal_to_terminal_id,
             nonterminal_id_to_expression,
+            terminals_trie: terminals_arena,
         }
     }
 }

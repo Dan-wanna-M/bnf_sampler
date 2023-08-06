@@ -1,13 +1,15 @@
 use std::time::Instant;
 use std::{fs, vec};
 
-mod simplified_grammar;
 mod sampler;
-mod utils;
-mod trie;
+mod simplified_grammar;
 mod stack;
+mod trie;
+mod utils;
 
 use mimalloc::MiMalloc;
+
+use crate::trie::TrieNodeID;
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
 
@@ -27,16 +29,14 @@ fn main() {
     let mut times: Vec<f64> = vec![];
     // println!("{:?}", machine.stacks);
     let now = Instant::now();
-    for i in 0..1
-    {
+    for i in 0..100 {
         machine.all_possible_next_tokens(Some("statistics".as_bytes()));
     }
 
     let end = now.elapsed();
-    println!("Time used: {:?}", end/1);
+    println!("Time used: {:?}", end / 100);
     // return;
     loop {
-        // println!("{:?}", machine.stacks);
         // println!("{:?}",grammar.nonterminal_to_terminal_id);
         println!("Input a terminal: ");
         let mut input = String::new();
@@ -56,8 +56,10 @@ fn main() {
         // println!("{:?}", machine);
         let end = now.elapsed();
         times.push(end.as_secs_f64());
+        println!("{:?}", result);
         println!("Time used: {:?}", end);
-        // println!("{:?}", result);
+        // println!("{:?}", machine.stacks);
+        // println!("{:?}", grammar.terminals_trie.get(TrieNodeID{id:57}));
         if result.is_empty() {
             break;
         }

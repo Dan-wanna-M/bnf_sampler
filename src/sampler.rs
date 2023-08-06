@@ -1,10 +1,15 @@
+use crate::simplified_grammar::SimplifiedExpressions;
 use crate::simplified_grammar::SimplifiedGrammar;
 use crate::stack::Stack;
 use crate::stack::StackArena;
+use crate::trie::TerminalsTrie;
+use crate::trie::TerminalsTrieIter;
+use crate::trie::TrieNodeID;
 use crate::utils::NonterminalID;
 use crate::utils::SliceU8Wrapper;
 use crate::utils::VecU8Wrapper;
 use bnf::Term;
+use itertools::Itertools;
 use qp_trie::Trie;
 use rustc_hash::FxHashSet;
 use std::time::Instant;
@@ -14,6 +19,7 @@ use std::vec;
 pub enum StackItem<'a> {
     Nonterminal(NonterminalID),
     Terminal(&'a [u8]),
+    Terminals(TrieNodeID),
 }
 #[derive(Clone, Debug)]
 pub struct PushDownAutomata<'a> {
@@ -30,6 +36,70 @@ enum BytesMatchResult<'b> {
     AllMatched,
     PartiallyMatched(&'b [u8]),
     Failed(usize),
+}
+#[derive(Debug)]
+enum ByteOrTerminals {
+    Byte(u8),
+    Terminals(TrieNodeID),
+}
+
+fn temporary_unused() {
+    /*
+    let mut nodes: Vec<TrieNodeID> = Vec::with_capacity(20);
+    let mut iters: Vec<TerminalsTrieIter> = Vec::with_capacity(20);
+    let mut slices: Vec<&[u8]> = Vec::with_capacity(20);
+    let try_update_slices = |iters:&mut Vec<TerminalsTrieIter>, slices:&mut Vec<&[u8]>|{
+        if slices.is_empty()
+        {
+            slices.extend(iters.iter().map(|i|i.next().unwrap()));
+            return true;
+        }
+        else {
+            for i in (0..iters.len()).rev()
+            {
+                match iters[i].next() {
+                    Some(slice)=>{slices[i]=slice;return true;},
+                    None=>{
+                        if i == 0
+                        {
+                            return false;
+                        }
+                        // iters[i] = current_prefix_buffer.iter()
+                    }
+                }
+            }
+            panic!("Iters should have some items.");
+        }
+    };
+     */
+    /*
+    'end: loop {
+        let mut counter = 0;
+        for i in current_prefix_buffer.iter() {
+            match i {
+                ByteOrTerminals::Byte(x)=>{
+                    self.current_prefix.0.push(*x);
+                }
+                ByteOrTerminals::Terminals(_)=>
+                {
+                    match iters[counter].next() {
+                        Some(value) => self.current_prefix.0.extend_from_slice(value),
+                        None => {
+                            if counter==0
+                            {
+                                break 'end;
+                            }
+                            else if  {
+
+                            }
+                        },
+                    }
+                    counter+=1;
+                }
+            }
+        }
+    }
+    */
 }
 
 impl<'a> PushDownAutomata<'a> {
@@ -67,47 +137,75 @@ impl<'a> PushDownAutomata<'a> {
         }
         // println!("Time used for accepting tokens: {:?}", now.elapsed());
         self.token_ids.clear();
+        // println!("stack after accepted: {:?}", self.stacks);
         for stack in self.stacks.iter() {
+            let mut current_prefix_buffer: Vec<ByteOrTerminals> = Vec::with_capacity(20);
+            let mut iters: Vec<TerminalsTrieIter> = Vec::with_capacity(20);
             for i in stack.iter().rev() {
                 match i {
-                    StackItem::Terminal(value) => self.current_prefix.0.extend(*value),
+                    StackItem::Terminal(value) => current_prefix_buffer
+                        .extend(value.iter().map(|x| ByteOrTerminals::Byte(*x))),
+                    StackItem::Terminals(value) => {
+                        current_prefix_buffer.push(ByteOrTerminals::Terminals(*value));
+                        iters.push(self.grammar.terminals_trie.iter(*value).clone())
+                    }
                     _ => break,
                 }
             }
-            let now = Instant::now();
-            let mut failed_prefixs: Trie<SliceU8Wrapper, ()> = Trie::new();
-            for (VecU8Wrapper(token), &token_id) in self
-                .tokens_tree
-                .iter_prefix(self.tokens_tree.longest_common_prefix(&self.current_prefix))
-            {
-                self.current_token.0.extend(token);
-                if self.token_ids.contains(&token_id)
-                    || failed_prefixs.contains_key(
-                        failed_prefixs.longest_common_prefix(self.current_token.0.as_slice()),
-                    )
+            // println!("buffer: {:?}", current_prefix_buffer);
+            // println!("iter: {:?}", iters);
+            for one_product in iters.into_iter().multi_cartesian_product() {
+                let mut counter = 0;
+                for i in current_prefix_buffer.iter() {
+                    match i {
+                        ByteOrTerminals::Byte(x) => {
+                            self.current_prefix.0.push(*x);
+                        }
+                        ByteOrTerminals::Terminals(_) => {
+                            self.current_prefix
+                                .0
+                                .extend_from_slice(one_product[counter]);
+                            counter += 1;
+                        }
+                    }
+                }
+                // println!("prefix {:?}",String::from_utf8(self.current_prefix.0.clone()));
+                let now = Instant::now();
+                let mut failed_prefixs: Trie<SliceU8Wrapper, ()> = Trie::new();
+                for (VecU8Wrapper(token), &token_id) in self
+                    .tokens_tree
+                    .iter_prefix(self.tokens_tree.longest_common_prefix(&self.current_prefix))
                 {
-                    continue;
+                    self.current_token.0.extend(token);
+                    if self.token_ids.contains(&token_id)
+                        || failed_prefixs.contains_key(
+                            failed_prefixs.longest_common_prefix(self.current_token.0.as_slice()),
+                        )
+                    {
+                        continue;
+                    }
+                    let arena_ptr = &mut self.stack_arena as *mut StackArena<StackItem<'a>>;
+                    let mut temp_stack = self.stack_arena.allocate_a_stack(stack.len());
+                    temp_stack.copy_from_slice(stack);
+                    let result = Self::find_stacks_matching_bytes(
+                        unsafe { &mut *arena_ptr },
+                        &mut temp_stack,
+                        self.grammar,
+                        Some(token),
+                        0,
+                        false,
+                        &self.grammar.terminals_trie,
+                        &mut |_| {},
+                        &mut |bytes, index| {
+                            failed_prefixs.insert(SliceU8Wrapper(&bytes[..index + 1]), ());
+                        },
+                    );
+                    if result {
+                        self.token_ids.insert(token_id);
+                    }
+                    self.stack_arena.clear();
+                    self.current_token.0.clear();
                 }
-                let arena_ptr = &mut self.stack_arena as *mut StackArena<StackItem<'a>>;
-                let mut temp_stack = self.stack_arena.allocate_a_stack(stack.len());
-                temp_stack.copy_from_slice(stack);
-                let result = Self::find_stacks_matching_bytes(
-                    unsafe { &mut *arena_ptr },
-                    &mut temp_stack,
-                    self.grammar,
-                    Some(token),
-                    0,
-                    false,
-                    &mut |_| {},
-                    &mut |bytes, index| {
-                        failed_prefixs.insert(SliceU8Wrapper(&bytes[..index + 1]), ());
-                    },
-                );
-                if result {
-                    self.token_ids.insert(token_id);
-                }
-                self.stack_arena.clear();
-                self.current_token.0.clear();
                 self.current_prefix.0.clear();
             }
             //println!("Time used for one stack: {:?}", now.elapsed());
@@ -132,6 +230,7 @@ impl<'a> PushDownAutomata<'a> {
                             bytes,
                             0,
                             true,
+                            &self.grammar.terminals_trie,
                             &mut |temp_stack: &Stack<StackItem<'_>>| {
                                 self.stacks.push(temp_stack.to_vec());
                             },
@@ -160,6 +259,7 @@ impl<'a> PushDownAutomata<'a> {
     fn match_stack_to_bytes<'b>(
         stack: &mut Stack<StackItem<'a>>,
         bytes: Option<&'b [u8]>,
+        trie: &TerminalsTrie,
     ) -> BytesMatchResult<'b> {
         let mut i = 0;
         if let Some(bytes) = bytes {
@@ -185,6 +285,27 @@ impl<'a> PushDownAutomata<'a> {
                                 }
                             }
                         }
+                        StackItem::Terminals(mut node_id) => {
+                            if !trie.get(node_id).children.contains_key(&bytes[i]) {
+                                return BytesMatchResult::Failed(i);
+                            }
+                            loop {
+                                if trie.get(node_id).children.contains_key(&bytes[i]) {
+                                    node_id = trie.get(node_id).children[&bytes[i]];
+                                    i += 1;
+                                    if i == bytes.len() {
+                                        if !trie.get(node_id).children.is_empty() {
+                                            stack.push(StackItem::Terminals(node_id));
+                                        }
+                                        return BytesMatchResult::AllMatched;
+                                    }
+                                } else if let Some(_) = trie.get(node_id).value {
+                                    break;
+                                } else {
+                                    return BytesMatchResult::Failed(i);
+                                }
+                            }
+                        }
                     },
                     None => return BytesMatchResult::Failed(i),
                 }
@@ -200,6 +321,7 @@ impl<'a> PushDownAutomata<'a> {
         bytes: Option<&'b [u8]>,
         layer: i8,
         find_all: bool,
+        trie: &TerminalsTrie,
         after_finding_stack: &mut F1,
         after_match_failed: &mut F2,
     ) -> bool
@@ -211,9 +333,9 @@ impl<'a> PushDownAutomata<'a> {
         let top = match stack.pop() {
             Some(value) => match value {
                 StackItem::Nonterminal(value2) => value2,
-                StackItem::Terminal(_) => {
+                StackItem::Terminal(_) | StackItem::Terminals(_) => {
                     stack.push(value);
-                    match Self::match_stack_to_bytes(stack, bytes) {
+                    match Self::match_stack_to_bytes(stack, bytes, trie) {
                         BytesMatchResult::Failed(i) => {
                             after_match_failed(bytes.unwrap(), i);
                             return false;
@@ -235,34 +357,61 @@ impl<'a> PushDownAutomata<'a> {
             None => return false,
         };
         let mut found = false;
-        for expression in grammar.nonterminal_id_to_expression[&top].iter() {
-            let arena_ptr = arena as *mut StackArena<StackItem<'a>>;
-            let temp_stack = &mut arena.allocate_a_stack(stack.len() + expression.len());
-            temp_stack.copy_from(&stack);
-            for term in expression.iter().rev() {
-                temp_stack.push(match term {
-                    Term::Terminal(value) => StackItem::Terminal(value.as_bytes()),
-                    Term::Nonterminal(value) => {
-                        StackItem::Nonterminal(grammar.nonterminal_to_terminal_id[value])
+        let arena_ptr = arena as *mut StackArena<StackItem<'a>>;
+        match &grammar.nonterminal_id_to_expression[&top] {
+            SimplifiedExpressions::Expressions(expressions) => {
+                for expression in expressions.iter() {
+                    let temp_stack = &mut arena.allocate_a_stack(stack.len() + expression.len());
+                    temp_stack.copy_from(&stack);
+                    for term in expression.iter().rev() {
+                        temp_stack.push(match term {
+                            Term::Terminal(value) => StackItem::Terminal(value.as_bytes()),
+                            Term::Nonterminal(value) => {
+                                // println!("{value}, {:?}",grammar.nonterminal_to_terminal_id);
+                                StackItem::Nonterminal(grammar.nonterminal_to_terminal_id[value])
+                            }
+                        });
                     }
-                });
+                    // println!("{layer}start=>{:?}", stack);
+                    let temp = Self::find_stacks_matching_bytes(
+                        unsafe { &mut *arena_ptr },
+                        temp_stack,
+                        grammar,
+                        bytes,
+                        layer + 1,
+                        find_all,
+                        trie,
+                        after_finding_stack,
+                        after_match_failed,
+                    );
+                    //println!("{layer}end=>{:?}", stack);
+                    found |= temp;
+                    if !find_all && found {
+                        return found;
+                    }
+                }
             }
-            // println!("{layer}start=>{:?}", stack);
-
-            let temp = Self::find_stacks_matching_bytes(
-                unsafe { &mut *arena_ptr },
-                temp_stack,
-                grammar,
-                bytes,
-                layer + 1,
-                find_all,
-                after_finding_stack,
-                after_match_failed,
-            );
-            //println!("{layer}end=>{:?}", stack);
-            found |= temp;
-            if !find_all && found {
-                return found;
+            SimplifiedExpressions::Terminals(node_id) => {
+                let temp_stack = &mut arena.allocate_a_stack(stack.len() + 1);
+                temp_stack.copy_from(&stack);
+                temp_stack.push(StackItem::Terminals(*node_id));
+                // println!("{layer}start=>{:?}", stack);
+                let temp = Self::find_stacks_matching_bytes(
+                    unsafe { &mut *arena_ptr },
+                    temp_stack,
+                    grammar,
+                    bytes,
+                    layer + 1,
+                    find_all,
+                    trie,
+                    after_finding_stack,
+                    after_match_failed,
+                );
+                //println!("{layer}end=>{:?}", stack);
+                found |= temp;
+                if !find_all && found {
+                    return found;
+                }
             }
         }
         found
