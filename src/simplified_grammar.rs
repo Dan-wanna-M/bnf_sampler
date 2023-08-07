@@ -6,12 +6,12 @@ use rustc_hash::FxHashMap;
 use rustc_hash::FxHashSet;
 #[derive(Clone, Debug)]
 pub struct SimplifiedGrammar {
-    pub nonterminal_id_to_expression: FxHashMap<NonterminalID, SimplifiedExpressions>,
-    pub nonterminal_to_terminal_id: FxHashMap<String, NonterminalID>,
-    pub terminals_trie: TerminalsTrie,
+    pub(crate) nonterminal_id_to_expression: FxHashMap<NonterminalID, SimplifiedExpressions>,
+    pub(crate) nonterminal_to_terminal_id: FxHashMap<String, NonterminalID>,
+    pub(crate) terminals_trie: TerminalsTrie,
 }
 #[derive(Clone, Debug)]
-pub enum SimplifiedExpressions {
+pub(crate) enum SimplifiedExpressions {
     Expressions(FxHashSet<Vec<Term>>),
     Terminals(TrieNodeID),
 }

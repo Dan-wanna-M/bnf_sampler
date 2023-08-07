@@ -1,5 +1,5 @@
 #[derive(Clone, Debug)]
-pub struct StackArena<T: Clone + Copy> {
+pub(crate) struct StackArena<T: Clone + Copy> {
     arena: Vec<Option<T>>,
     current_ptr: usize,
 }
@@ -28,7 +28,7 @@ impl<T: Clone + Copy> StackArena<T> {
     }
 }
 #[derive(Debug)]
-pub struct Stack<'a, T: Copy> {
+pub(crate) struct Stack<'a, T: Copy> {
     buffer: &'a mut [Option<T>],
     top: usize,
 }
@@ -60,8 +60,8 @@ impl<'a, T: Copy> Stack<'a, T> {
     pub fn copy_from_slice(&mut self, source: &[T]) {
         assert!(self.top == 0);
         assert!(self.buffer.len() >= source.len());
-        for i in 0..source.len() {
-            self.buffer[i] = Some(source[i]);
+        for (i, value) in source.iter().enumerate() {
+            self.buffer[i] = Some(*value);
         }
         self.top = source.len();
     }

@@ -1,13 +1,13 @@
 use qp_trie::Trie;
-use std::borrow::Borrow;
 use rustc_hash::FxHashMap;
+use std::borrow::Borrow;
 use std::fs::File;
 use std::io::{prelude::*, BufReader};
 #[derive(PartialEq, Clone, Debug, Copy, Eq, Hash)]
-pub struct NonterminalID(pub usize);
+pub(crate) struct NonterminalID(pub usize);
 
 #[derive(PartialEq, Clone, Debug)]
-pub struct VecU8Wrapper(pub Vec<u8>);
+pub struct VecU8Wrapper(pub(crate) Vec<u8>);
 
 impl Borrow<[u8]> for VecU8Wrapper {
     #[inline]
@@ -31,7 +31,7 @@ impl qp_trie::Break for VecU8Wrapper {
 }
 
 #[derive(PartialEq, Clone, Debug)]
-pub struct SliceU8Wrapper<'a>(pub &'a [u8]);
+pub(crate) struct SliceU8Wrapper<'a>(pub &'a [u8]);
 
 impl<'a> Borrow<[u8]> for SliceU8Wrapper<'a> {
     #[inline]
@@ -60,19 +60,15 @@ pub fn read_world_vocab(file_name: &str) -> (Trie<VecU8Wrapper, u32>, FxHashMap<
     let mut tree = Trie::<VecU8Wrapper, u32>::new();
     for line in reader.lines() {
         let line = line.unwrap();
-        let mut start = line.find(' ').unwrap_or_else(||
-            panic!(
-                "Invalid format. Ensure this vocab file{file_name} belongs to RWKV world model."
-            ),
-        );
-        let mut end = line.rfind(' ').unwrap_or_else(||
-            panic!(
-                "Invalid format. Ensure this vocab file{file_name} belongs to RWKV world model."
-            ),
-        );
+        let mut start = line.find(' ').unwrap_or_else(|| {
+            panic!("Invalid format. Ensure this vocab file{file_name} belongs to RWKV world model.")
+        });
+        let mut end = line.rfind(' ').unwrap_or_else(|| {
+            panic!("Invalid format. Ensure this vocab file{file_name} belongs to RWKV world model.")
+        });
         let token_id = line[..start]
             .parse::<u32>()
-            .unwrap_or_else(|x|panic!("{line} cannot be parsed due to {x}."));
+            .unwrap_or_else(|x| panic!("{line} cannot be parsed due to {x}."));
         start += 1;
         end -= 1;
         if line.chars().nth(start).unwrap() == 'b' {

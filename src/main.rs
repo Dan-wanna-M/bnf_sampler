@@ -17,7 +17,7 @@ fn main() {
     let input = String::from_utf8(utils::fix_utf8_escape(&input)).unwrap();
     let (tree, map) = utils::read_world_vocab("vocab.txt");
     let grammar = simplified_grammar::SimplifiedGrammar::new(&input);
-    let mut machine = sampler::PushDownAutomata::new(&grammar, "dna", tree, 8192);
+    let mut machine = sampler::Sampler::new(&grammar, "dna", tree, 8192);
     let result: Vec<&str> = machine
         .all_possible_next_tokens(None)
         .unwrap()

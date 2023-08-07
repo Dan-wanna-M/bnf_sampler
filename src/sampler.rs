@@ -13,18 +13,17 @@ use itertools::Itertools;
 use qp_trie::Trie;
 use rustc_hash::FxHashMap;
 use rustc_hash::FxHashSet;
-use std::time::Instant;
 use std::vec;
 
 #[derive(PartialEq, Clone, Debug, Copy, Eq, Hash)]
-pub enum StackItem<'a> {
+pub(crate) enum StackItem<'a> {
     Nonterminal(NonterminalID),
     Terminal(&'a [u8]),
     Terminals(TrieNodeID),
 }
 #[derive(Clone, Debug)]
-pub struct PushDownAutomata<'a> {
-    pub stacks: Vec<Vec<StackItem<'a>>>,
+pub struct Sampler<'a> {
+    pub(crate) stacks: Vec<Vec<StackItem<'a>>>,
     grammar: &'a SimplifiedGrammar,
     tokens_tree: Trie<VecU8Wrapper, u32>,
     stack_arena: StackArena<StackItem<'a>>,
@@ -45,14 +44,14 @@ enum ByteOrTerminals {
     Terminals(TrieNodeID),
 }
 
-impl<'a> PushDownAutomata<'a> {
-    /// Create a new PushDownAutomata with simplified grammar
+impl<'a> Sampler<'a> {
+    /// Create a new Sampler with simplified grammar
     pub fn new(
         grammar: &'a SimplifiedGrammar,
         start_term: &str,
         tokens_tree: Trie<VecU8Wrapper, u32>,
         stack_arena_capacity: usize,
-    ) -> PushDownAutomata<'a> {
+    ) -> Sampler<'a> {
         let stacks = vec![vec![StackItem::Nonterminal(
             grammar.nonterminal_to_terminal_id[start_term],
         )]];
@@ -60,7 +59,7 @@ impl<'a> PushDownAutomata<'a> {
         let current_token = VecU8Wrapper(Vec::with_capacity(128));
         let current_prefix = VecU8Wrapper(Vec::with_capacity(128));
         let stacks_to_token_ids = FxHashMap::default();
-        PushDownAutomata {
+        Sampler {
             stacks,
             grammar,
             tokens_tree,
@@ -76,88 +75,87 @@ impl<'a> PushDownAutomata<'a> {
         &mut self,
         previous_tokens: Option<&[u8]>,
     ) -> Option<&FxHashSet<u32>> {
-        let now = Instant::now();
         if !self.accept_tokens(previous_tokens) {
             return None;
         }
-        // println!("Time used for accepting tokens: {:?}", now.elapsed());
         self.token_ids.clear();
-        // println!("stack after accepted: {:?}", self.stacks);
-        Some(self.stacks_to_token_ids.entry(self.stacks.clone()).or_insert_with(||{
-            for stack in self.stacks.iter() {
-                let mut current_prefix_buffer: Vec<ByteOrTerminals> = Vec::with_capacity(20);
-                let mut iters: Vec<TerminalsTrieIter> = Vec::with_capacity(20);
-                for i in stack.iter().rev() {
-                    match i {
-                        StackItem::Terminal(value) => current_prefix_buffer
-                            .extend(value.iter().map(|x| ByteOrTerminals::Byte(*x))),
-                        StackItem::Terminals(value) => {
-                            current_prefix_buffer.push(ByteOrTerminals::Terminals(*value));
-                            iters.push(self.grammar.terminals_trie.iter(*value).clone())
-                        }
-                        _ => break,
-                    }
-                }
-                // println!("buffer: {:?}", current_prefix_buffer);
-                // println!("iter: {:?}", iters);
-                for one_product in iters.into_iter().multi_cartesian_product() {
-                    let mut counter = 0;
-                    for i in current_prefix_buffer.iter() {
-                        match i {
-                            ByteOrTerminals::Byte(x) => {
-                                self.current_prefix.0.push(*x);
-                            }
-                            ByteOrTerminals::Terminals(_) => {
-                                self.current_prefix
-                                    .0
-                                    .extend_from_slice(one_product[counter]);
-                                counter += 1;
+        Some(
+            self.stacks_to_token_ids
+                .entry(self.stacks.clone())
+                .or_insert_with(|| {
+                    for stack in self.stacks.iter() {
+                        let mut current_prefix_buffer: Vec<ByteOrTerminals> =
+                            Vec::with_capacity(20);
+                        let mut iters: Vec<TerminalsTrieIter> = Vec::with_capacity(20);
+                        for i in stack.iter().rev() {
+                            match i {
+                                StackItem::Terminal(value) => current_prefix_buffer
+                                    .extend(value.iter().map(|x| ByteOrTerminals::Byte(*x))),
+                                StackItem::Terminals(value) => {
+                                    current_prefix_buffer.push(ByteOrTerminals::Terminals(*value));
+                                    iters.push(self.grammar.terminals_trie.iter(*value).clone())
+                                }
+                                _ => break,
                             }
                         }
-                    }
-                    // println!("prefix {:?}",String::from_utf8(self.current_prefix.0.clone()));
-                    let now = Instant::now();
-                    let mut failed_prefixs: Trie<SliceU8Wrapper, ()> = Trie::new();
-                    for (VecU8Wrapper(token), &token_id) in self
-                        .tokens_tree
-                        .iter_prefix(self.tokens_tree.longest_common_prefix(&self.current_prefix))
-                    {
-                        self.current_token.0.extend(token);
-                        if self.token_ids.contains(&token_id)
-                            || failed_prefixs.contains_key(
-                                failed_prefixs.longest_common_prefix(self.current_token.0.as_slice()),
-                            )
-                        {
-                            continue;
+                        for one_product in iters.into_iter().multi_cartesian_product() {
+                            let mut counter = 0;
+                            for i in current_prefix_buffer.iter() {
+                                match i {
+                                    ByteOrTerminals::Byte(x) => {
+                                        self.current_prefix.0.push(*x);
+                                    }
+                                    ByteOrTerminals::Terminals(_) => {
+                                        self.current_prefix
+                                            .0
+                                            .extend_from_slice(one_product[counter]);
+                                        counter += 1;
+                                    }
+                                }
+                            }
+                            let mut failed_prefixs: Trie<SliceU8Wrapper, ()> = Trie::new();
+                            for (VecU8Wrapper(token), &token_id) in self.tokens_tree.iter_prefix(
+                                self.tokens_tree.longest_common_prefix(&self.current_prefix),
+                            ) {
+                                self.current_token.0.extend(token);
+                                if self.token_ids.contains(&token_id)
+                                    || failed_prefixs.contains_key(
+                                        failed_prefixs
+                                            .longest_common_prefix(self.current_token.0.as_slice()),
+                                    )
+                                {
+                                    continue;
+                                }
+                                let arena_ptr =
+                                    &mut self.stack_arena as *mut StackArena<StackItem<'a>>;
+                                let mut temp_stack = self.stack_arena.allocate_a_stack(stack.len());
+                                temp_stack.copy_from_slice(stack);
+                                let result = Self::find_stacks_matching_bytes(
+                                    unsafe { &mut *arena_ptr },
+                                    &mut temp_stack,
+                                    self.grammar,
+                                    Some(token),
+                                    false,
+                                    &self.grammar.terminals_trie,
+                                    &mut |_| {},
+                                    &mut |bytes, index| {
+                                        failed_prefixs
+                                            .insert(SliceU8Wrapper(&bytes[..index + 1]), ());
+                                    },
+                                );
+                                if result {
+                                    self.token_ids.insert(token_id);
+                                }
+                                self.stack_arena.clear();
+                                self.current_token.0.clear();
+                            }
+                            self.current_prefix.0.clear();
                         }
-                        let arena_ptr = &mut self.stack_arena as *mut StackArena<StackItem<'a>>;
-                        let mut temp_stack = self.stack_arena.allocate_a_stack(stack.len());
-                        temp_stack.copy_from_slice(stack);
-                        let result = Self::find_stacks_matching_bytes(
-                            unsafe { &mut *arena_ptr },
-                            &mut temp_stack,
-                            self.grammar,
-                            Some(token),
-                            0,
-                            false,
-                            &self.grammar.terminals_trie,
-                            &mut |_| {},
-                            &mut |bytes, index| {
-                                failed_prefixs.insert(SliceU8Wrapper(&bytes[..index + 1]), ());
-                            },
-                        );
-                        if result {
-                            self.token_ids.insert(token_id);
-                        }
-                        self.stack_arena.clear();
-                        self.current_token.0.clear();
+                        //println!("Time used for one stack: {:?}", now.elapsed());
                     }
-                    self.current_prefix.0.clear();
-                }
-                //println!("Time used for one stack: {:?}", now.elapsed());
-            }
-            self.token_ids.clone()
-        }))
+                    self.token_ids.clone()
+                }),
+        )
     }
     #[must_use]
     fn accept_tokens(&mut self, bytes: Option<&[u8]>) -> bool {
@@ -175,7 +173,6 @@ impl<'a> PushDownAutomata<'a> {
                             &mut stack,
                             self.grammar,
                             bytes,
-                            0,
                             true,
                             &self.grammar.terminals_trie,
                             &mut |temp_stack: &Stack<StackItem<'_>>| {
@@ -200,7 +197,6 @@ impl<'a> PushDownAutomata<'a> {
             return false;
         }
         result | find_stacks_matching_bytes(None)
-        // println!("{:?}", self.stacks);
     }
 
     fn match_stack_to_bytes<'b>(
@@ -246,7 +242,7 @@ impl<'a> PushDownAutomata<'a> {
                                         }
                                         return BytesMatchResult::AllMatched;
                                     }
-                                } else if let Some(_) = trie.get(node_id).value {
+                                } else if trie.get(node_id).value.is_some() {
                                     break;
                                 } else {
                                     return BytesMatchResult::Failed(i);
@@ -258,15 +254,14 @@ impl<'a> PushDownAutomata<'a> {
                 }
             }
         }
-        return BytesMatchResult::AllMatched;
+        BytesMatchResult::AllMatched
     }
-
+    #[allow(clippy::too_many_arguments)]
     fn find_stacks_matching_bytes<'b, F1, F2>(
         arena: &mut StackArena<StackItem<'a>>,
         stack: &mut Stack<StackItem<'a>>,
         grammar: &'a SimplifiedGrammar,
         bytes: Option<&'b [u8]>,
-        layer: i8,
         find_all: bool,
         trie: &TerminalsTrie,
         after_finding_stack: &mut F1,
@@ -309,29 +304,25 @@ impl<'a> PushDownAutomata<'a> {
             SimplifiedExpressions::Expressions(expressions) => {
                 for expression in expressions.iter() {
                     let temp_stack = &mut arena.allocate_a_stack(stack.len() + expression.len());
-                    temp_stack.copy_from(&stack);
+                    temp_stack.copy_from(stack);
                     for term in expression.iter().rev() {
                         temp_stack.push(match term {
                             Term::Terminal(value) => StackItem::Terminal(value.as_bytes()),
                             Term::Nonterminal(value) => {
-                                // println!("{value}, {:?}",grammar.nonterminal_to_terminal_id);
                                 StackItem::Nonterminal(grammar.nonterminal_to_terminal_id[value])
                             }
                         });
                     }
-                    // println!("{layer}start=>{:?}", stack);
                     let temp = Self::find_stacks_matching_bytes(
                         unsafe { &mut *arena_ptr },
                         temp_stack,
                         grammar,
                         bytes,
-                        layer + 1,
                         find_all,
                         trie,
                         after_finding_stack,
                         after_match_failed,
                     );
-                    //println!("{layer}end=>{:?}", stack);
                     found |= temp;
                     if !find_all && found {
                         return found;
@@ -340,21 +331,18 @@ impl<'a> PushDownAutomata<'a> {
             }
             SimplifiedExpressions::Terminals(node_id) => {
                 let temp_stack = &mut arena.allocate_a_stack(stack.len() + 1);
-                temp_stack.copy_from(&stack);
+                temp_stack.copy_from(stack);
                 temp_stack.push(StackItem::Terminals(*node_id));
-                // println!("{layer}start=>{:?}", stack);
                 let temp = Self::find_stacks_matching_bytes(
                     unsafe { &mut *arena_ptr },
                     temp_stack,
                     grammar,
                     bytes,
-                    layer + 1,
                     find_all,
                     trie,
                     after_finding_stack,
                     after_match_failed,
                 );
-                //println!("{layer}end=>{:?}", stack);
                 found |= temp;
                 if !find_all && found {
                     return found;
