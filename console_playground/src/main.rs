@@ -10,6 +10,7 @@ fn main() {
     let (tree, map) = utils::read_world_vocab("vocab.txt");
     let grammar = simplified_grammar::SimplifiedGrammar::new(&input);
     let mut machine = Sampler::new(&grammar, "dna", tree, 8192);
+    println!("{:?}", machine.stacks);
     let result: Vec<&str> = machine
         .all_possible_next_tokens(None)
         .unwrap()
@@ -21,12 +22,12 @@ fn main() {
     // println!("{:?}", machine.stacks);
     let now = Instant::now();
     for i in 0..100 {
-        machine.all_possible_next_tokens(Some("statistics".as_bytes()));
+        // machine.all_possible_next_tokens(Some("statistics".as_bytes()));
     }
 
     let end = now.elapsed();
     println!("Time used: {:?}", end / 100);
-    return;
+    // return;
     loop {
         // println!("{:?}",grammar.nonterminal_to_terminal_id);
         println!("Input a terminal: ");

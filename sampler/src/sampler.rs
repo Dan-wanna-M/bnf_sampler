@@ -16,14 +16,14 @@ use rustc_hash::FxHashSet;
 use std::vec;
 
 #[derive(PartialEq, Clone, Debug, Copy, Eq, Hash)]
-pub(crate) enum StackItem<'a> {
+pub enum StackItem<'a> {
     Nonterminal(NonterminalID),
     Terminal(&'a [u8]),
     Terminals(TrieNodeID),
 }
 #[derive(Clone, Debug)]
 pub struct Sampler<'a> {
-    pub(crate) stacks: Vec<Vec<StackItem<'a>>>,
+    pub stacks: Vec<Vec<StackItem<'a>>>,
     grammar: &'a SimplifiedGrammar,
     tokens_tree: Trie<VecU8Wrapper, u32>,
     stack_arena: StackArena<StackItem<'a>>,
@@ -98,7 +98,22 @@ impl<'a> Sampler<'a> {
                                 _ => break,
                             }
                         }
-                        for one_product in iters.into_iter().multi_cartesian_product() {
+                        let mut products = iters.into_iter().multi_cartesian_product();
+                        let mut flag = false;
+                        loop {
+                            let one_product = match products.next() {
+                                Some(x) => {
+                                    flag = true;
+                                    x
+                                }
+                                None => {
+                                    if flag {
+                                        break;
+                                    }
+                                    flag = true;
+                                    vec![]
+                                }
+                            };
                             let mut counter = 0;
                             for i in current_prefix_buffer.iter() {
                                 match i {

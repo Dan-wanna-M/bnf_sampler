@@ -4,7 +4,7 @@ use std::borrow::Borrow;
 use std::fs::File;
 use std::io::{prelude::*, BufReader};
 #[derive(PartialEq, Clone, Debug, Copy, Eq, Hash)]
-pub(crate) struct NonterminalID(pub usize);
+pub struct NonterminalID(pub usize);
 
 #[derive(PartialEq, Clone, Debug)]
 pub struct VecU8Wrapper(pub(crate) Vec<u8>);

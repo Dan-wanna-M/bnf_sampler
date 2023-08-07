@@ -110,7 +110,7 @@ impl TerminalsTrie {
     }
 }
 #[derive(PartialEq, Clone, Debug, Copy, Eq, Hash)]
-pub(crate) struct TrieNodeID {
+pub struct TrieNodeID {
     pub id: usize,
 }
 #[derive(Clone, Debug)]
