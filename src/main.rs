@@ -9,7 +9,6 @@ mod utils;
 
 use mimalloc::MiMalloc;
 
-use crate::trie::TrieNodeID;
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
 
@@ -35,7 +34,7 @@ fn main() {
 
     let end = now.elapsed();
     println!("Time used: {:?}", end / 100);
-    // return;
+    return;
     loop {
         // println!("{:?}",grammar.nonterminal_to_terminal_id);
         println!("Input a terminal: ");

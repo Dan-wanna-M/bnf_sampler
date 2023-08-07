@@ -11,11 +11,12 @@ use crate::utils::VecU8Wrapper;
 use bnf::Term;
 use itertools::Itertools;
 use qp_trie::Trie;
+use rustc_hash::FxHashMap;
 use rustc_hash::FxHashSet;
 use std::time::Instant;
 use std::vec;
 
-#[derive(PartialEq, Clone, Debug, Copy)]
+#[derive(PartialEq, Clone, Debug, Copy, Eq, Hash)]
 pub enum StackItem<'a> {
     Nonterminal(NonterminalID),
     Terminal(&'a [u8]),
@@ -27,6 +28,7 @@ pub struct PushDownAutomata<'a> {
     grammar: &'a SimplifiedGrammar,
     tokens_tree: Trie<VecU8Wrapper, u32>,
     stack_arena: StackArena<StackItem<'a>>,
+    stacks_to_token_ids: FxHashMap<Vec<Vec<StackItem<'a>>>, FxHashSet<u32>>,
     token_ids: FxHashSet<u32>,
     current_token: VecU8Wrapper,
     current_prefix: VecU8Wrapper,
@@ -43,65 +45,6 @@ enum ByteOrTerminals {
     Terminals(TrieNodeID),
 }
 
-fn temporary_unused() {
-    /*
-    let mut nodes: Vec<TrieNodeID> = Vec::with_capacity(20);
-    let mut iters: Vec<TerminalsTrieIter> = Vec::with_capacity(20);
-    let mut slices: Vec<&[u8]> = Vec::with_capacity(20);
-    let try_update_slices = |iters:&mut Vec<TerminalsTrieIter>, slices:&mut Vec<&[u8]>|{
-        if slices.is_empty()
-        {
-            slices.extend(iters.iter().map(|i|i.next().unwrap()));
-            return true;
-        }
-        else {
-            for i in (0..iters.len()).rev()
-            {
-                match iters[i].next() {
-                    Some(slice)=>{slices[i]=slice;return true;},
-                    None=>{
-                        if i == 0
-                        {
-                            return false;
-                        }
-                        // iters[i] = current_prefix_buffer.iter()
-                    }
-                }
-            }
-            panic!("Iters should have some items.");
-        }
-    };
-     */
-    /*
-    'end: loop {
-        let mut counter = 0;
-        for i in current_prefix_buffer.iter() {
-            match i {
-                ByteOrTerminals::Byte(x)=>{
-                    self.current_prefix.0.push(*x);
-                }
-                ByteOrTerminals::Terminals(_)=>
-                {
-                    match iters[counter].next() {
-                        Some(value) => self.current_prefix.0.extend_from_slice(value),
-                        None => {
-                            if counter==0
-                            {
-                                break 'end;
-                            }
-                            else if  {
-
-                            }
-                        },
-                    }
-                    counter+=1;
-                }
-            }
-        }
-    }
-    */
-}
-
 impl<'a> PushDownAutomata<'a> {
     /// Create a new PushDownAutomata with simplified grammar
     pub fn new(
@@ -116,10 +59,12 @@ impl<'a> PushDownAutomata<'a> {
         let token_ids: FxHashSet<u32> = FxHashSet::default();
         let current_token = VecU8Wrapper(Vec::with_capacity(128));
         let current_prefix = VecU8Wrapper(Vec::with_capacity(128));
+        let stacks_to_token_ids = FxHashMap::default();
         PushDownAutomata {
             stacks,
             grammar,
             tokens_tree,
+            stacks_to_token_ids,
             token_ids,
             current_token,
             current_prefix,
@@ -138,79 +83,81 @@ impl<'a> PushDownAutomata<'a> {
         // println!("Time used for accepting tokens: {:?}", now.elapsed());
         self.token_ids.clear();
         // println!("stack after accepted: {:?}", self.stacks);
-        for stack in self.stacks.iter() {
-            let mut current_prefix_buffer: Vec<ByteOrTerminals> = Vec::with_capacity(20);
-            let mut iters: Vec<TerminalsTrieIter> = Vec::with_capacity(20);
-            for i in stack.iter().rev() {
-                match i {
-                    StackItem::Terminal(value) => current_prefix_buffer
-                        .extend(value.iter().map(|x| ByteOrTerminals::Byte(*x))),
-                    StackItem::Terminals(value) => {
-                        current_prefix_buffer.push(ByteOrTerminals::Terminals(*value));
-                        iters.push(self.grammar.terminals_trie.iter(*value).clone())
-                    }
-                    _ => break,
-                }
-            }
-            // println!("buffer: {:?}", current_prefix_buffer);
-            // println!("iter: {:?}", iters);
-            for one_product in iters.into_iter().multi_cartesian_product() {
-                let mut counter = 0;
-                for i in current_prefix_buffer.iter() {
+        Some(self.stacks_to_token_ids.entry(self.stacks.clone()).or_insert_with(||{
+            for stack in self.stacks.iter() {
+                let mut current_prefix_buffer: Vec<ByteOrTerminals> = Vec::with_capacity(20);
+                let mut iters: Vec<TerminalsTrieIter> = Vec::with_capacity(20);
+                for i in stack.iter().rev() {
                     match i {
-                        ByteOrTerminals::Byte(x) => {
-                            self.current_prefix.0.push(*x);
+                        StackItem::Terminal(value) => current_prefix_buffer
+                            .extend(value.iter().map(|x| ByteOrTerminals::Byte(*x))),
+                        StackItem::Terminals(value) => {
+                            current_prefix_buffer.push(ByteOrTerminals::Terminals(*value));
+                            iters.push(self.grammar.terminals_trie.iter(*value).clone())
                         }
-                        ByteOrTerminals::Terminals(_) => {
-                            self.current_prefix
-                                .0
-                                .extend_from_slice(one_product[counter]);
-                            counter += 1;
-                        }
+                        _ => break,
                     }
                 }
-                // println!("prefix {:?}",String::from_utf8(self.current_prefix.0.clone()));
-                let now = Instant::now();
-                let mut failed_prefixs: Trie<SliceU8Wrapper, ()> = Trie::new();
-                for (VecU8Wrapper(token), &token_id) in self
-                    .tokens_tree
-                    .iter_prefix(self.tokens_tree.longest_common_prefix(&self.current_prefix))
-                {
-                    self.current_token.0.extend(token);
-                    if self.token_ids.contains(&token_id)
-                        || failed_prefixs.contains_key(
-                            failed_prefixs.longest_common_prefix(self.current_token.0.as_slice()),
-                        )
+                // println!("buffer: {:?}", current_prefix_buffer);
+                // println!("iter: {:?}", iters);
+                for one_product in iters.into_iter().multi_cartesian_product() {
+                    let mut counter = 0;
+                    for i in current_prefix_buffer.iter() {
+                        match i {
+                            ByteOrTerminals::Byte(x) => {
+                                self.current_prefix.0.push(*x);
+                            }
+                            ByteOrTerminals::Terminals(_) => {
+                                self.current_prefix
+                                    .0
+                                    .extend_from_slice(one_product[counter]);
+                                counter += 1;
+                            }
+                        }
+                    }
+                    // println!("prefix {:?}",String::from_utf8(self.current_prefix.0.clone()));
+                    let now = Instant::now();
+                    let mut failed_prefixs: Trie<SliceU8Wrapper, ()> = Trie::new();
+                    for (VecU8Wrapper(token), &token_id) in self
+                        .tokens_tree
+                        .iter_prefix(self.tokens_tree.longest_common_prefix(&self.current_prefix))
                     {
-                        continue;
+                        self.current_token.0.extend(token);
+                        if self.token_ids.contains(&token_id)
+                            || failed_prefixs.contains_key(
+                                failed_prefixs.longest_common_prefix(self.current_token.0.as_slice()),
+                            )
+                        {
+                            continue;
+                        }
+                        let arena_ptr = &mut self.stack_arena as *mut StackArena<StackItem<'a>>;
+                        let mut temp_stack = self.stack_arena.allocate_a_stack(stack.len());
+                        temp_stack.copy_from_slice(stack);
+                        let result = Self::find_stacks_matching_bytes(
+                            unsafe { &mut *arena_ptr },
+                            &mut temp_stack,
+                            self.grammar,
+                            Some(token),
+                            0,
+                            false,
+                            &self.grammar.terminals_trie,
+                            &mut |_| {},
+                            &mut |bytes, index| {
+                                failed_prefixs.insert(SliceU8Wrapper(&bytes[..index + 1]), ());
+                            },
+                        );
+                        if result {
+                            self.token_ids.insert(token_id);
+                        }
+                        self.stack_arena.clear();
+                        self.current_token.0.clear();
                     }
-                    let arena_ptr = &mut self.stack_arena as *mut StackArena<StackItem<'a>>;
-                    let mut temp_stack = self.stack_arena.allocate_a_stack(stack.len());
-                    temp_stack.copy_from_slice(stack);
-                    let result = Self::find_stacks_matching_bytes(
-                        unsafe { &mut *arena_ptr },
-                        &mut temp_stack,
-                        self.grammar,
-                        Some(token),
-                        0,
-                        false,
-                        &self.grammar.terminals_trie,
-                        &mut |_| {},
-                        &mut |bytes, index| {
-                            failed_prefixs.insert(SliceU8Wrapper(&bytes[..index + 1]), ());
-                        },
-                    );
-                    if result {
-                        self.token_ids.insert(token_id);
-                    }
-                    self.stack_arena.clear();
-                    self.current_token.0.clear();
+                    self.current_prefix.0.clear();
                 }
-                self.current_prefix.0.clear();
+                //println!("Time used for one stack: {:?}", now.elapsed());
             }
-            //println!("Time used for one stack: {:?}", now.elapsed());
-        }
-        Some(&self.token_ids)
+            self.token_ids.clone()
+        }))
     }
     #[must_use]
     fn accept_tokens(&mut self, bytes: Option<&[u8]>) -> bool {
