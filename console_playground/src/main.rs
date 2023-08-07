@@ -1,23 +1,15 @@
 use std::time::Instant;
 use std::{fs, vec};
 
-mod sampler;
-mod simplified_grammar;
-mod stack;
-mod trie;
-mod utils;
-
-use mimalloc::MiMalloc;
-
-#[global_allocator]
-static GLOBAL: MiMalloc = MiMalloc;
+use sampler::sampler::Sampler;
+use sampler::{utils, simplified_grammar};
 
 fn main() {
     let input = fs::read_to_string("./grammar.bnf").expect("grammar.bnf should exist.");
     let input = String::from_utf8(utils::fix_utf8_escape(&input)).unwrap();
     let (tree, map) = utils::read_world_vocab("vocab.txt");
     let grammar = simplified_grammar::SimplifiedGrammar::new(&input);
-    let mut machine = sampler::Sampler::new(&grammar, "dna", tree, 8192);
+    let mut machine = Sampler::new(&grammar, "dna", tree, 8192);
     let result: Vec<&str> = machine
         .all_possible_next_tokens(None)
         .unwrap()
