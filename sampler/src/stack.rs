@@ -1,3 +1,5 @@
+use std::ops::{IndexMut, Index, RangeTo};
+
 #[derive(Clone, Debug)]
 pub(crate) struct StackArena<T: Clone + Copy> {
     arena: Vec<Option<T>>,
@@ -33,6 +35,23 @@ pub(crate) struct Stack<'a, T: Copy> {
     top: usize,
 }
 
+impl<'a, T: Copy> Index<usize> for Stack<'a, T>  {
+    type Output=T;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        assert!(index<self.top, "the length of the stack is {}, but the index is {}", self.top, index);
+        self.buffer[index].as_ref().unwrap()
+    }
+}
+impl<'a, T: Copy> Index<RangeTo<usize>> for Stack<'a, T>  {
+    type Output=[Option<T>];
+
+    fn index(&self, index: RangeTo<usize>) -> &Self::Output {
+        assert!(index.end<self.top, "the length of the stack is {}, but the range is {:?}", self.top, index);
+        &self.buffer[index]
+    }
+}
+
 impl<'a, T: Copy> Stack<'a, T> {
     pub fn push(&mut self, value: T) {
         self.buffer[self.top] = Some(value);
@@ -64,6 +83,19 @@ impl<'a, T: Copy> Stack<'a, T> {
             self.buffer[i] = Some(*value);
         }
         self.top = source.len();
+    }
+    pub fn copy_from_raw_slice(&mut self, source: &[Option<T>]) {
+        assert!(self.top == 0);
+        assert!(self.buffer.len() >= source.len());
+        for (i, value) in source.iter().enumerate() {
+            self.buffer[i] = *value;
+        }
+        self.top = source.len();
+    }
+
+    pub fn as_raw_slice(&self)->&[Option<T>]
+    {
+        &self.buffer[..self.top]
     }
 
     pub fn to_vec(&self) -> Vec<T> {

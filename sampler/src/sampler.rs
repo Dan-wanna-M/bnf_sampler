@@ -13,6 +13,7 @@ use itertools::Itertools;
 use qp_trie::Trie;
 use rustc_hash::FxHashMap;
 use rustc_hash::FxHashSet;
+use std::ptr::NonNull;
 use std::vec;
 
 #[derive(PartialEq, Clone, Debug, Copy, Eq, Hash)]
@@ -32,12 +33,18 @@ pub struct Sampler<'a> {
     current_token: VecU8Wrapper,
     current_prefix: VecU8Wrapper,
 }
-
-enum BytesMatchResult<'b> {
-    AllMatched,
-    PartiallyMatched(&'b [u8]),
+#[derive(Debug)]
+enum BytesMatchResults<'a, 'b> {
     Failed(usize),
+    Matches(Vec<BytesMatchResult<'a, 'b>>),
 }
+#[derive(Debug)]
+struct BytesMatchResult<'a, 'b> {
+    remaining_bytes: Option<&'b [u8]>,
+    stack_offset: usize,
+    modified_item_at_offset: Option<StackItem<'a>>,
+}
+
 #[derive(Debug)]
 enum ByteOrTerminals {
     Byte(u8),
@@ -141,18 +148,21 @@ impl<'a> Sampler<'a> {
                                 {
                                     continue;
                                 }
-                                let arena_ptr =
-                                    &mut self.stack_arena as *mut StackArena<StackItem<'a>>;
+                                let arena = unsafe {
+                                    NonNull::new_unchecked(
+                                        &mut self.stack_arena as *mut StackArena<StackItem<'a>>,
+                                    )
+                                };
                                 let mut temp_stack = self.stack_arena.allocate_a_stack(stack.len());
                                 temp_stack.copy_from_slice(stack);
                                 let result = Self::find_stacks_matching_bytes(
-                                    unsafe { &mut *arena_ptr },
+                                    arena,
                                     &mut temp_stack,
                                     self.grammar,
                                     Some(token),
                                     false,
                                     &self.grammar.terminals_trie,
-                                    &mut |_| {},
+                                    &mut |_, _| {},
                                     &mut |bytes, index| {
                                         failed_prefixs
                                             .insert(SliceU8Wrapper(&bytes[..index + 1]), ());
@@ -178,20 +188,27 @@ impl<'a> Sampler<'a> {
             let len = self.stacks.len();
             let mut accepted = false;
             for i in 0..len {
-                let arena_ptr = &mut self.stack_arena as *mut StackArena<StackItem<'a>>;
+                let arena = unsafe {
+                    NonNull::new_unchecked(&mut self.stack_arena as *mut StackArena<StackItem<'a>>)
+                };
                 let mut stack = self.stack_arena.allocate_a_stack(self.stacks[i].len());
                 stack.copy_from_slice(&self.stacks[i]);
                 match stack.last() {
                     Some(_) => {
                         accepted |= Self::find_stacks_matching_bytes(
-                            unsafe { &mut *arena_ptr },
+                            arena,
                             &mut stack,
                             self.grammar,
                             bytes,
                             true,
                             &self.grammar.terminals_trie,
-                            &mut |temp_stack: &Stack<StackItem<'_>>| {
-                                self.stacks.push(temp_stack.to_vec());
+                            &mut |temp_stack: &[Option<StackItem<'_>>], top: Option<StackItem>| {
+                                let mut new_vec = Vec::with_capacity(temp_stack.len() + 1);
+                                new_vec.extend(temp_stack.iter().map(|x| x.unwrap()));
+                                if let Some(top) = top {
+                                    new_vec.push(top);
+                                }
+                                self.stacks.push(new_vec);
                             },
                             &mut |_, _| {},
                         );
@@ -205,6 +222,7 @@ impl<'a> Sampler<'a> {
             for i in (0..len).rev() {
                 self.stacks.swap_remove(i);
             }
+            self.stacks = Vec::from_iter(self.stacks.iter().unique().cloned());
             accepted
         };
         let result = find_stacks_matching_bytes(bytes);
@@ -215,65 +233,126 @@ impl<'a> Sampler<'a> {
     }
 
     fn match_stack_to_bytes<'b>(
-        stack: &mut Stack<StackItem<'a>>,
+        stack: &Stack<StackItem<'a>>,
         bytes: Option<&'b [u8]>,
         trie: &TerminalsTrie,
-    ) -> BytesMatchResult<'b> {
-        let mut i = 0;
-        if let Some(bytes) = bytes {
-            while i < bytes.len() {
-                match stack.pop() {
-                    Some(value) => match value {
-                        StackItem::Nonterminal(_) => {
-                            stack.push(value);
-                            return BytesMatchResult::PartiallyMatched(&bytes[i..]);
+    ) -> BytesMatchResults<'a, 'b> {
+        fn _match_stack_to_bytes<'a, 'b>(
+            stack: &Stack<StackItem<'a>>,
+            bytes: &'b [u8],
+            trie: &TerminalsTrie,
+            stack_offset: usize,
+            shortest_failed_index: &mut usize,
+            result: &mut Vec<BytesMatchResult<'a, 'b>>,
+        ) {
+            if bytes.is_empty() {
+                return;
+            }
+            match stack[stack_offset] {
+                StackItem::Nonterminal(_) => {
+                    result.push(BytesMatchResult {
+                        remaining_bytes: Some(bytes),
+                        stack_offset,
+                        modified_item_at_offset: None,
+                    });
+                }
+                StackItem::Terminal(terminal) => {
+                    for i in 0..terminal.len() {
+                        if bytes.len() == i {
+                            result.push(BytesMatchResult {
+                                remaining_bytes: None,
+                                stack_offset,
+                                modified_item_at_offset: Some(StackItem::Terminal(&terminal[i..])),
+                            })
                         }
-                        StackItem::Terminal(terminal) => {
-                            for j in 0..terminal.len() {
-                                if terminal[j] == bytes[i] {
-                                    i += 1;
-                                    if i == bytes.len() {
-                                        if j != terminal.len() - 1 {
-                                            stack.push(StackItem::Terminal(&terminal[j + 1..]))
-                                        }
-                                        return BytesMatchResult::AllMatched;
-                                    }
-                                } else {
-                                    return BytesMatchResult::Failed(i);
+                        if bytes[i] != terminal[i] {
+                            *shortest_failed_index = std::cmp::min(i, *shortest_failed_index);
+                            return;
+                        }
+                    }
+                    if stack_offset > 0 {
+                        _match_stack_to_bytes(
+                            stack,
+                            &bytes[terminal.len()..],
+                            trie,
+                            stack_offset - 1,
+                            shortest_failed_index,
+                            result,
+                        )
+                    }
+                }
+                StackItem::Terminals(mut current_node_ID) => {
+                    let mut current_node = trie.get(current_node_ID);
+                    for i in 0..bytes.len() {
+                        match current_node.children.get(&bytes[i]) {
+                            Some(new_node_id) => {
+                                let new_node = trie.get(*new_node_id);
+                                if new_node.value.is_some() && stack_offset > 0 {
+                                    _match_stack_to_bytes(
+                                        stack,
+                                        &bytes[i + 1..],
+                                        trie,
+                                        stack_offset - 1,
+                                        shortest_failed_index,
+                                        result,
+                                    );
                                 }
+                                current_node_ID = *new_node_id;
+                                current_node = new_node;
+                            }
+                            None => {
+                                *shortest_failed_index = std::cmp::min(i, *shortest_failed_index);
+                                return;
                             }
                         }
-                        StackItem::Terminals(mut node_id) => {
-                            if !trie.get(node_id).children.contains_key(&bytes[i]) {
-                                return BytesMatchResult::Failed(i);
-                            }
-                            loop {
-                                if trie.get(node_id).children.contains_key(&bytes[i]) {
-                                    node_id = trie.get(node_id).children[&bytes[i]];
-                                    i += 1;
-                                    if i == bytes.len() {
-                                        if !trie.get(node_id).children.is_empty() {
-                                            stack.push(StackItem::Terminals(node_id));
-                                        }
-                                        return BytesMatchResult::AllMatched;
-                                    }
-                                } else if trie.get(node_id).value.is_some() {
-                                    break;
-                                } else {
-                                    return BytesMatchResult::Failed(i);
-                                }
-                            }
-                        }
-                    },
-                    None => return BytesMatchResult::Failed(i),
+                    }
+                    let mut modified_item_at_offset = None;
+                    if !current_node.children.is_empty() {
+                        modified_item_at_offset = Some(StackItem::Terminals(current_node_ID));
+                    }
+                    result.push(BytesMatchResult {
+                        remaining_bytes: None,
+                        stack_offset,
+                        modified_item_at_offset,
+                    });
+                    if current_node.value.is_some()
+                    {
+                        result.push(BytesMatchResult {
+                            remaining_bytes: None,
+                            stack_offset,
+                            modified_item_at_offset:None,
+                        });
+                    }
                 }
             }
         }
-        BytesMatchResult::AllMatched
+        let mut result: Vec<BytesMatchResult> = vec![];
+        match bytes {
+            None => return BytesMatchResults::Matches(result),
+            Some(bytes) => {
+                result.reserve(bytes.len());
+                let stack_offset = stack.len() - 1;
+                let mut shortest_failed_index = 0;
+                _match_stack_to_bytes(
+                    stack,
+                    bytes,
+                    trie,
+                    stack_offset,
+                    &mut shortest_failed_index,
+                    &mut result,
+                );
+                if result.is_empty() {
+                    return BytesMatchResults::Failed(shortest_failed_index);
+                } else {
+                    return BytesMatchResults::Matches(result);
+                }
+            }
+        }
     }
+
     #[allow(clippy::too_many_arguments)]
     fn find_stacks_matching_bytes<'b, F1, F2>(
-        arena: &mut StackArena<StackItem<'a>>,
+        arena: NonNull<StackArena<StackItem<'a>>>,
         stack: &mut Stack<StackItem<'a>>,
         grammar: &'a SimplifiedGrammar,
         bytes: Option<&'b [u8]>,
@@ -283,87 +362,134 @@ impl<'a> Sampler<'a> {
         after_match_failed: &mut F2,
     ) -> bool
     where
-        F1: FnMut(&Stack<StackItem<'a>>),
+        F1: FnMut(&[Option<StackItem<'a>>], Option<StackItem<'a>>),
         F2: FnMut(&'b [u8], usize),
     {
-        let mut bytes = bytes;
-        let top = match stack.pop() {
+        let mut _find_stacks_matching_bytes =
+            |mut arena: NonNull<StackArena<StackItem<'a>>>,
+             top: NonterminalID,
+             stack: &[Option<StackItem<'a>>],
+             bytes: Option<&'b [u8]>,
+             after_finding_stack: &mut F1| {
+                let mut found = false;
+                match &grammar.nonterminal_id_to_expression[&top] {
+                    SimplifiedExpressions::Expressions(expressions) => {
+                        for expression in expressions.iter() {
+                            let temp_stack = &mut unsafe { arena.as_mut() }
+                                .allocate_a_stack(stack.len() + expression.len());
+                            temp_stack.copy_from_raw_slice(stack);
+                            for term in expression.iter().rev() {
+                                temp_stack.push(match term {
+                                    Term::Terminal(value) => StackItem::Terminal(value.as_bytes()),
+                                    Term::Nonterminal(value) => StackItem::Nonterminal(
+                                        grammar.nonterminal_to_terminal_id[value],
+                                    ),
+                                });
+                            }
+                            let temp = Self::find_stacks_matching_bytes(
+                                arena,
+                                temp_stack,
+                                grammar,
+                                bytes,
+                                find_all,
+                                trie,
+                                after_finding_stack,
+                                after_match_failed,
+                            );
+                            found |= temp;
+                            if !find_all && found {
+                                return found;
+                            }
+                        }
+                    }
+                    SimplifiedExpressions::Terminals(node_id) => {
+                        let temp_stack =
+                            &mut unsafe { arena.as_mut() }.allocate_a_stack(stack.len() + 1);
+                        temp_stack.copy_from_raw_slice(stack);
+                        temp_stack.push(StackItem::Terminals(*node_id));
+                        let temp = Self::find_stacks_matching_bytes(
+                            arena,
+                            temp_stack,
+                            grammar,
+                            bytes,
+                            find_all,
+                            trie,
+                            after_finding_stack,
+                            after_match_failed,
+                        );
+                        found |= temp;
+                        if !find_all && found {
+                            return found;
+                        }
+                    }
+                }
+                found
+            };
+        match stack.pop() {
             Some(value) => match value {
-                StackItem::Nonterminal(value2) => value2,
+                StackItem::Nonterminal(top) => return _find_stacks_matching_bytes(
+                    arena,
+                    top,
+                    stack.as_raw_slice(),
+                    bytes,
+                    after_finding_stack,
+                ),
                 StackItem::Terminal(_) | StackItem::Terminals(_) => {
                     stack.push(value);
                     match Self::match_stack_to_bytes(stack, bytes, trie) {
-                        BytesMatchResult::Failed(i) => {
-                            after_match_failed(bytes.unwrap(), i);
+                        BytesMatchResults::Failed(index) => {
+                            after_match_failed(bytes.unwrap(), index);
                             return false;
                         }
-                        BytesMatchResult::AllMatched => {
-                            after_finding_stack(stack);
-                            return true;
-                        }
-                        BytesMatchResult::PartiallyMatched(new_bytes) => {
-                            bytes = Some(new_bytes);
-                            match stack.pop().expect("The stack should not be empty.") {
-                                StackItem::Nonterminal(x) => x,
-                                _ => panic!("The top item should be nonterminal."),
+                        BytesMatchResults::Matches(possible_results) => {
+                            // println!("results: {:?}, {:?}", possible_results, stack);
+                            if possible_results.is_empty() {
+                                after_finding_stack(stack.as_raw_slice(), None);
+                                return true;
                             }
+                            let mut flag = false;
+                            for result in possible_results {
+                                match result.remaining_bytes {
+                                    None => {
+                                        after_finding_stack(
+                                            &stack[..result.stack_offset],
+                                            result.modified_item_at_offset,
+                                        );
+                                        flag |= true;
+                                        if !find_all {
+                                            return true;
+                                        }
+                                    }
+                                    Some(_) => {
+                                        let top = match result
+                                            .modified_item_at_offset
+                                            .unwrap_or(stack[result.stack_offset])
+                                        {
+                                            StackItem::Nonterminal(id) => id,
+                                            _ => panic!(
+                                                "{:?} should only be nonterminal.",
+                                                &stack[..result.stack_offset + 1]
+                                            ),
+                                        };
+                                        flag |= _find_stacks_matching_bytes(
+                                            arena,
+                                            top,
+                                            &stack[..result.stack_offset],
+                                            result.remaining_bytes,
+                                            after_finding_stack,
+                                        );
+                                        if !find_all {
+                                            return true;
+                                        }
+                                    }
+                                }
+                            }
+                            return flag;
                         }
                     }
                 }
             },
             None => return false,
         };
-        let mut found = false;
-        let arena_ptr = arena as *mut StackArena<StackItem<'a>>;
-        match &grammar.nonterminal_id_to_expression[&top] {
-            SimplifiedExpressions::Expressions(expressions) => {
-                for expression in expressions.iter() {
-                    let temp_stack = &mut arena.allocate_a_stack(stack.len() + expression.len());
-                    temp_stack.copy_from(stack);
-                    for term in expression.iter().rev() {
-                        temp_stack.push(match term {
-                            Term::Terminal(value) => StackItem::Terminal(value.as_bytes()),
-                            Term::Nonterminal(value) => {
-                                StackItem::Nonterminal(grammar.nonterminal_to_terminal_id[value])
-                            }
-                        });
-                    }
-                    let temp = Self::find_stacks_matching_bytes(
-                        unsafe { &mut *arena_ptr },
-                        temp_stack,
-                        grammar,
-                        bytes,
-                        find_all,
-                        trie,
-                        after_finding_stack,
-                        after_match_failed,
-                    );
-                    found |= temp;
-                    if !find_all && found {
-                        return found;
-                    }
-                }
-            }
-            SimplifiedExpressions::Terminals(node_id) => {
-                let temp_stack = &mut arena.allocate_a_stack(stack.len() + 1);
-                temp_stack.copy_from(stack);
-                temp_stack.push(StackItem::Terminals(*node_id));
-                let temp = Self::find_stacks_matching_bytes(
-                    unsafe { &mut *arena_ptr },
-                    temp_stack,
-                    grammar,
-                    bytes,
-                    find_all,
-                    trie,
-                    after_finding_stack,
-                    after_match_failed,
-                );
-                found |= temp;
-                if !find_all && found {
-                    return found;
-                }
-            }
-        }
-        found
     }
 }

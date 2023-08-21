@@ -1,6 +1,6 @@
-<dna> ::= '牛马''牛马'<sequence>'牛马'<digit>
-<sequence> ::= <base>|<base><sequence>
+<dna> ::= <sequence>
+<sequence> ::= <any!>|<any!><sequence>
 <digit> ::= '1'|'2'|'3'|'4'
 <b> ::= 'A@#'
 <base> ::='a'|'b'|'c'|'d'|'e'|'f'|'g'|'h'|'i'|'j'|'k'|'l'|'m'|'n'|'o'|'p'|'q'|'r'|'s'|'t'|'u'|'v'|'w'|'x'|'y'|'z'|' '
-<char> ::='我是野兽'|'我，黄鹤'|'一'|'个'
+<char> ::='我是野兽'|'我，黄鹤'|'一'|'个'|'我'|'是'
