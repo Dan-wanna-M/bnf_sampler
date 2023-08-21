@@ -30,7 +30,7 @@ fn main() {
     // return;
     loop {
         // println!("{:?}",grammar.nonterminal_to_terminal_id);
-        println!("Input a terminal: ");
+        println!("Input a token: ");
         let mut input = String::new();
         std::io::stdin()
             .read_line(&mut input)
