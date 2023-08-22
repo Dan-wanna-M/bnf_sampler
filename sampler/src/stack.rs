@@ -1,25 +1,25 @@
 use std::ops::{IndexMut, Index, RangeTo};
 
 #[derive(Clone, Debug)]
-pub(crate) struct StackArena<T: Clone + Copy> {
+pub(crate) struct BufferArena<T: Clone + Copy> {
     arena: Vec<Option<T>>,
     current_ptr: usize,
 }
 
-impl<T: Clone + Copy> StackArena<T> {
+impl<T: Clone + Copy> BufferArena<T> {
     pub fn with_capacity(capacity: usize) -> Self {
         let mut area = Vec::with_capacity(capacity);
         area.resize(capacity, None);
-        StackArena {
+        BufferArena {
             arena: area,
             current_ptr: 0,
         }
     }
 
-    pub fn allocate_a_stack(&mut self, capacity: usize) -> Stack<T> {
+    pub fn allocate_a_stack(&mut self, capacity: usize) -> FixedBuffer<T> {
         let buffer = &mut self.arena[self.current_ptr..self.current_ptr + capacity];
         self.current_ptr += capacity;
-        Stack { buffer, top: 0 }
+        FixedBuffer { buffer, top: 0 }
     }
 
     pub fn clear(&mut self) {
@@ -30,12 +30,12 @@ impl<T: Clone + Copy> StackArena<T> {
     }
 }
 #[derive(Debug)]
-pub(crate) struct Stack<'a, T: Copy> {
+pub(crate) struct FixedBuffer<'a, T: Copy> {
     buffer: &'a mut [Option<T>],
     top: usize,
 }
 
-impl<'a, T: Copy> Index<usize> for Stack<'a, T>  {
+impl<'a, T: Copy> Index<usize> for FixedBuffer<'a, T>  {
     type Output=T;
 
     fn index(&self, index: usize) -> &Self::Output {
@@ -43,7 +43,7 @@ impl<'a, T: Copy> Index<usize> for Stack<'a, T>  {
         self.buffer[index].as_ref().unwrap()
     }
 }
-impl<'a, T: Copy> Index<RangeTo<usize>> for Stack<'a, T>  {
+impl<'a, T: Copy> Index<RangeTo<usize>> for FixedBuffer<'a, T>  {
     type Output=[Option<T>];
 
     fn index(&self, index: RangeTo<usize>) -> &Self::Output {
@@ -52,7 +52,7 @@ impl<'a, T: Copy> Index<RangeTo<usize>> for Stack<'a, T>  {
     }
 }
 
-impl<'a, T: Copy> Stack<'a, T> {
+impl<'a, T: Copy> FixedBuffer<'a, T> {
     pub fn push(&mut self, value: T) {
         self.buffer[self.top] = Some(value);
         self.top += 1;

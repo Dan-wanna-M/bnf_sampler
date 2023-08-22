@@ -6,10 +6,17 @@ use std::io::{prelude::*, BufReader};
 
 pub static ANY_NONTERMINAL_NAME: &str  = "any!";
 
-#[derive(PartialEq, Clone, Debug, Copy, Eq, Hash)]
+#[derive(PartialEq, Clone, Debug, Copy, Eq)]
 pub struct NonterminalID(pub usize);
 
-#[derive(PartialEq, Clone, Debug)]
+impl std::hash::Hash for NonterminalID {
+    fn hash<H: std::hash::Hasher>(&self, hasher: &mut H) {
+        hasher.write_usize(self.0)
+    }
+}
+impl nohash_hasher::IsEnabled for NonterminalID {}
+
+#[derive(PartialEq, Clone, Debug, Eq, Hash)]
 pub struct VecU8Wrapper(pub(crate) Vec<u8>);
 
 impl Borrow<[u8]> for VecU8Wrapper {

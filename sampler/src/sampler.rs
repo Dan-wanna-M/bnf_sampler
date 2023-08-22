@@ -1,7 +1,7 @@
 use crate::simplified_grammar::SimplifiedExpressions;
 use crate::simplified_grammar::SimplifiedGrammar;
-use crate::stack::Stack;
-use crate::stack::StackArena;
+use crate::stack::FixedBuffer;
+use crate::stack::BufferArena;
 use crate::trie::TerminalsTrie;
 use bit_set::BitSet;
 use crate::trie::TrieNodeID;
@@ -16,6 +16,8 @@ use std::ptr::NonNull;
 use std::time::Instant;
 use std::vec;
 
+const INVALID_INDEX:i32 = -1;
+
 #[derive(PartialEq, Clone, Debug, Copy, Eq, Hash)]
 pub enum StackItem<'a> {
     Nonterminal(NonterminalID),
@@ -26,20 +28,20 @@ pub enum StackItem<'a> {
 pub struct Sampler<'a> {
     pub stacks: Vec<Vec<StackItem<'a>>>,
     grammar: &'a SimplifiedGrammar,
-    tokens_tree: Trie<VecU8Wrapper, u32>,
-    stack_arena: StackArena<StackItem<'a>>,
+    tokens_tree: Vec<(VecU8Wrapper, u32)>,
+    stack_arena: BufferArena<StackItem<'a>>,
     stacks_to_token_ids: FxHashMap<Vec<Vec<StackItem<'a>>>, BitSet<u32>>,
     token_ids: BitSet<u32>
 }
 #[derive(Debug)]
-enum BytesMatchResults<'a, 'b> {
+enum BytesMatchResults<'a> {
     Failed(usize),
-    Matches(Vec<BytesMatchResult<'a, 'b>>),
+    Matches(Vec<BytesMatchResult<'a>>),
 }
 #[derive(Debug)]
-struct BytesMatchResult<'a, 'b> {
-    remaining_bytes: Option<&'b [u8]>,
-    stack_offset: usize,
+struct BytesMatchResult<'a> {
+    remaining_bytes_start: i32,
+    stack_offset: u32,
     modified_item_at_offset: Option<StackItem<'a>>,
 }
 
@@ -56,13 +58,14 @@ impl<'a> Sampler<'a> {
         )]];
         let token_ids: BitSet<u32> = BitSet::new();
         let stacks_to_token_ids = FxHashMap::default();
+        let tokens_tree = Vec::from_iter(tokens_tree.iter().map(|(k, v)|(k.clone(), *v)));
         Sampler {
             stacks,
             grammar,
             tokens_tree,
             stacks_to_token_ids,
             token_ids,
-            stack_arena: StackArena::with_capacity(stack_arena_capacity),
+            stack_arena: BufferArena::with_capacity(stack_arena_capacity),
         }
     }
 
@@ -91,7 +94,7 @@ impl<'a> Sampler<'a> {
                                 }
                             let arena = unsafe {
                                 NonNull::new_unchecked(
-                                    &mut self.stack_arena as *mut StackArena<StackItem<'a>>,
+                                    &mut self.stack_arena as *mut BufferArena<StackItem<'a>>,
                                 )
                             };
                             let mut temp_stack = self.stack_arena.allocate_a_stack(stack.len());
@@ -126,7 +129,7 @@ impl<'a> Sampler<'a> {
             let mut accepted = false;
             for i in 0..len {
                 let arena = unsafe {
-                    NonNull::new_unchecked(&mut self.stack_arena as *mut StackArena<StackItem<'a>>)
+                    NonNull::new_unchecked(&mut self.stack_arena as *mut BufferArena<StackItem<'a>>)
                 };
                 let mut stack = self.stack_arena.allocate_a_stack(self.stacks[i].len());
                 stack.copy_from_slice(&self.stacks[i]);
@@ -170,17 +173,18 @@ impl<'a> Sampler<'a> {
     }
 
     fn match_stack_to_bytes<'b>(
-        stack: &Stack<StackItem<'a>>,
+        stack: &FixedBuffer<StackItem<'a>>,
         bytes: Option<&'b [u8]>,
         trie: &TerminalsTrie,
-    ) -> BytesMatchResults<'a, 'b> {
-        fn _match_stack_to_bytes<'a, 'b>(
-            stack: &Stack<StackItem<'a>>,
-            bytes: &'b [u8],
+    ) -> BytesMatchResults<'a> {
+        fn _match_stack_to_bytes<'a>(
+            stack: &FixedBuffer<StackItem<'a>>,
+            bytes: &[u8],
+            bytes_index:usize,
             trie: &TerminalsTrie,
             stack_offset: usize,
             shortest_failed_index: &mut usize,
-            result: &mut Vec<BytesMatchResult<'a, 'b>>,
+            result: &mut Vec<BytesMatchResult<'a>>,
         ) {
             if bytes.is_empty() {
                 return;
@@ -188,17 +192,17 @@ impl<'a> Sampler<'a> {
             match stack[stack_offset] {
                 StackItem::Nonterminal(_) => {
                     result.push(BytesMatchResult {
-                        remaining_bytes: Some(bytes),
-                        stack_offset,
+                        remaining_bytes_start:bytes_index as i32,
+                        stack_offset:stack_offset as u32,
                         modified_item_at_offset: None,
                     });
                 }
                 StackItem::Terminal(terminal) => {
-                    for i in 0..terminal.len() {
+                    for i in bytes_index..terminal.len() {
                         if bytes.len() == i {
                             result.push(BytesMatchResult {
-                                remaining_bytes: None,
-                                stack_offset,
+                                remaining_bytes_start: INVALID_INDEX,
+                                stack_offset:stack_offset as u32,
                                 modified_item_at_offset: Some(StackItem::Terminal(&terminal[i..])),
                             })
                         }
@@ -210,7 +214,8 @@ impl<'a> Sampler<'a> {
                     if stack_offset > 0 {
                         _match_stack_to_bytes(
                             stack,
-                            &bytes[terminal.len()..],
+                            bytes,
+                            terminal.len(),
                             trie,
                             stack_offset - 1,
                             shortest_failed_index,
@@ -218,23 +223,24 @@ impl<'a> Sampler<'a> {
                         )
                     }
                 }
-                StackItem::Terminals(mut current_node_ID) => {
-                    let mut current_node = trie.get(current_node_ID);
-                    for i in 0..bytes.len() {
+                StackItem::Terminals(mut current_node_id) => {
+                    let mut current_node = trie.get(current_node_id);
+                    for i in bytes_index..bytes.len() {
                         match current_node.children.get(&bytes[i]) {
                             Some(new_node_id) => {
                                 let new_node = trie.get(*new_node_id);
-                                if new_node.value.is_some() && stack_offset > 0 {
+                                if new_node.value.is_some() && stack_offset > 0&&i<bytes.len()-1 {
                                     _match_stack_to_bytes(
                                         stack,
-                                        &bytes[i + 1..],
+                                        bytes,
+                                        i+1,
                                         trie,
                                         stack_offset - 1,
                                         shortest_failed_index,
                                         result,
                                     );
                                 }
-                                current_node_ID = *new_node_id;
+                                current_node_id = *new_node_id;
                                 current_node = new_node;
                             }
                             None => {
@@ -245,17 +251,17 @@ impl<'a> Sampler<'a> {
                     }
                     let mut modified_item_at_offset = None;
                     if !current_node.children.is_empty() {
-                        modified_item_at_offset = Some(StackItem::Terminals(current_node_ID));
+                        modified_item_at_offset = Some(StackItem::Terminals(current_node_id));
                     }
                     result.push(BytesMatchResult {
-                        remaining_bytes: None,
-                        stack_offset,
+                        remaining_bytes_start: INVALID_INDEX,
+                        stack_offset:stack_offset as u32,
                         modified_item_at_offset,
                     });
                     if current_node.value.is_some() {
                         result.push(BytesMatchResult {
-                            remaining_bytes: None,
-                            stack_offset,
+                            remaining_bytes_start: INVALID_INDEX,
+                            stack_offset:stack_offset as u32,
                             modified_item_at_offset: None,
                         });
                     }
@@ -272,6 +278,7 @@ impl<'a> Sampler<'a> {
                 _match_stack_to_bytes(
                     stack,
                     bytes,
+                    0,
                     trie,
                     stack_offset,
                     &mut shortest_failed_index,
@@ -288,8 +295,8 @@ impl<'a> Sampler<'a> {
 
     #[allow(clippy::too_many_arguments)]
     fn find_stacks_matching_bytes<'b, F1, F2>(
-        arena: NonNull<StackArena<StackItem<'a>>>,
-        stack: &mut Stack<StackItem<'a>>,
+        arena: NonNull<BufferArena<StackItem<'a>>>,
+        stack: &mut FixedBuffer<StackItem<'a>>,
         grammar: &'a SimplifiedGrammar,
         bytes: Option<&'b [u8]>,
         find_all: bool,
@@ -302,7 +309,7 @@ impl<'a> Sampler<'a> {
         F2: FnMut(&'b [u8], usize),
     {
         let mut _find_stacks_matching_bytes =
-            |mut arena: NonNull<StackArena<StackItem<'a>>>,
+            |mut arena: NonNull<BufferArena<StackItem<'a>>>,
              top: NonterminalID,
              stack: &[Option<StackItem<'a>>],
              bytes: Option<&'b [u8]>,
@@ -377,7 +384,7 @@ impl<'a> Sampler<'a> {
                     match Self::match_stack_to_bytes(stack, bytes, trie) {
                         BytesMatchResults::Failed(index) => {
                             after_match_failed(bytes.unwrap(), index);
-                            return false;
+                            false
                         }
                         BytesMatchResults::Matches(possible_results) => {
                             // println!("results: {:?}, {:?}", possible_results, stack);
@@ -387,10 +394,10 @@ impl<'a> Sampler<'a> {
                             }
                             let mut flag = false;
                             for result in possible_results {
-                                match result.remaining_bytes {
-                                    None => {
+                                match result.remaining_bytes_start {
+                                    INVALID_INDEX => {
                                         after_finding_stack(
-                                            &stack[..result.stack_offset],
+                                            &stack[..result.stack_offset as usize],
                                             result.modified_item_at_offset,
                                         );
                                         flag |= true;
@@ -398,22 +405,22 @@ impl<'a> Sampler<'a> {
                                             return true;
                                         }
                                     }
-                                    Some(_) => {
+                                    value => {
                                         let top = match result
                                             .modified_item_at_offset
-                                            .unwrap_or(stack[result.stack_offset])
+                                            .unwrap_or(stack[result.stack_offset as usize])
                                         {
                                             StackItem::Nonterminal(id) => id,
                                             _ => panic!(
                                                 "{:?} should only be nonterminal.",
-                                                &stack[..result.stack_offset + 1]
+                                                &stack[..(result.stack_offset + 1) as usize]
                                             ),
                                         };
                                         flag |= _find_stacks_matching_bytes(
                                             arena,
                                             top,
-                                            &stack[..result.stack_offset],
-                                            result.remaining_bytes,
+                                            &stack[..result.stack_offset as usize],
+                                            Some(&(bytes.unwrap()[value as usize..])),
                                             after_finding_stack,
                                         );
                                         if !find_all {
@@ -422,12 +429,12 @@ impl<'a> Sampler<'a> {
                                     }
                                 }
                             }
-                            return flag;
+                            flag
                         }
                     }
                 }
             },
-            None => return false,
-        };
+            None => false,
+        }
     }
 }

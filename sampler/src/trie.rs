@@ -1,9 +1,10 @@
-use rustc_hash::FxHashMap;
+use std::{collections::HashMap, hash::Hash};
+use nohash_hasher::BuildNoHashHasher;
 
 use crate::utils::NonterminalID;
 #[derive(Clone, Debug)]
 pub(crate) struct TerminalsTrie {
-    pub roots: FxHashMap<NonterminalID, TrieNodeID>,
+    pub roots: HashMap<NonterminalID, TrieNodeID, BuildNoHashHasher<NonterminalID>>,
     arena: Vec<TrieNode>,
 }
 #[derive(Clone, Debug)]
@@ -42,7 +43,7 @@ impl TerminalsTrie {
     pub fn new() -> Self {
         let arena = Vec::new();
         TerminalsTrie {
-            roots: FxHashMap::default(),
+            roots: HashMap::default(),
             arena,
         }
     }
@@ -71,7 +72,7 @@ impl TerminalsTrie {
                 TrieNode {
                     index: 0,
                     value: None,
-                    children: FxHashMap::default(),
+                    children: HashMap::default(),
                 },
             ));
         for i in terminal {
@@ -84,7 +85,7 @@ impl TerminalsTrie {
                         TrieNode {
                             index,
                             value: None,
-                            children: FxHashMap::default(),
+                            children: HashMap::default(),
                         },
                     );
                     self.get_mut(current_node_id).append(*i, new_node_id);
@@ -117,7 +118,7 @@ pub struct TrieNodeID {
 pub(crate) struct TrieNode {
     pub index: usize,
     pub value: Option<Vec<u8>>,
-    pub children: FxHashMap<u8, TrieNodeID>,
+    pub children: HashMap<u8, TrieNodeID, BuildNoHashHasher<u8>>,
 }
 
 impl TrieNode {
