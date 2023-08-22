@@ -9,25 +9,26 @@ fn main() {
     let input = String::from_utf8(utils::fix_utf8_escape(&input)).unwrap();
     let (tree, map) = utils::read_world_vocab("vocab.txt");
     let grammar = simplified_grammar::SimplifiedGrammar::new(&input, &tree);
-    let mut machine = Sampler::new(&grammar, "dna", tree, 1024*1000);
+    let mut machine = Sampler::new(&grammar, "dna", tree, 1024*10000);
     // println!("{:?}", machine.stacks);
     let result: Vec<&str> = machine
         .all_possible_next_tokens(None)
         .unwrap()
         .iter()
-        .map(|x| map[x].as_str())
+        .map(|x| map[&(x as u32)].as_str())
         .collect();
     // println!("{:?}", result);
     let mut times: Vec<f64> = vec![];
     // println!("{:?}", machine.stacks);
     let now = Instant::now();
-    for i in 0..10 {
-        // machine.all_possible_next_tokens(Some("statistics".as_bytes()));
-    }
+    machine.all_possible_next_tokens(Some("statistics".as_bytes()));
+    machine.all_possible_next_tokens(Some("takeitboy".as_bytes()));
+    machine.all_possible_next_tokens(Some("vanyousee".as_bytes()));
+    machine.all_possible_next_tokens(Some("asswecan".as_bytes()));
 
     let end = now.elapsed();
-    println!("Time used: {:?}", end / 10);
-    // return;
+    println!("Time used: {:?}", end / 4);
+    return;
     loop {
         // println!("{:?}",grammar.nonterminal_to_terminal_id);
         println!("Input a token: ");
@@ -38,7 +39,7 @@ fn main() {
         let input = utils::fix_utf8_escape(input.trim());
         let now = Instant::now();
         let result: Vec<&str> = match machine.all_possible_next_tokens(Some(&input)) {
-            Some(result) => result.iter().map(|x| map[x].as_str()).collect(),
+            Some(result) => result.iter().map(|x| map[&(x as u32)].as_str()).collect(),
             None => {
                 println!("Invalid input.");
                 break;

@@ -10,3 +10,4 @@ qp-trie = "0.8.1"
 mimalloc = { version = "*", default-features = false }
 rustc-hash = "1.1.0"
 itertools = "0.11.0"
+bit-set = "0.5.3"

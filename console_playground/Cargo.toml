@@ -7,5 +7,3 @@ edition = "2021"
 
 [dependencies]
 sampler = { path = "../sampler" }
-[release.profile]
-debug=true
