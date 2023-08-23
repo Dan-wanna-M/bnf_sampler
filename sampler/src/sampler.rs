@@ -4,6 +4,7 @@ use crate::stack::BufferArena;
 use crate::stack::FixedBuffer;
 use crate::trie::TerminalsTrie;
 use crate::trie::TrieNodeID;
+use crate::utils;
 use crate::utils::NonterminalID;
 use crate::utils::SliceU8Wrapper;
 use crate::utils::VecU8Wrapper;
@@ -77,8 +78,21 @@ impl<'a> Sampler<'a> {
         if !self.accept_tokens(previous_tokens) {
             return None;
         }
-        // println!("accepting tokens: {:?}", now.elapsed());
+        println!("accepting tokens: {:?}", now.elapsed());
         self.token_ids.clear();
+        for stack in self.stacks.iter()
+        {
+            if let StackItem::Terminals(node_id) = stack.last().expect("The stack should not be empty.") {
+                if let Some((k,_)) = self.grammar.terminals_trie.roots.iter().find(|(_, v)|**v==*node_id)
+                {
+                    if *k == self.grammar.nonterminal_to_terminal_id[utils::ANY_NONTERMINAL_NAME]
+                    {
+                        self.token_ids.extend(self.tokens_tree.iter().map(|(_, v)|(*v) as usize));
+                        break;
+                    }
+                }
+            }
+        }
         Some(
             self.stacks_to_token_ids
                 .entry(self.stacks.clone())
@@ -108,7 +122,6 @@ impl<'a> Sampler<'a> {
                                 self.grammar,
                                 Some(token.0.as_slice()),
                                 false,
-                                &self.grammar.terminals_trie,
                                 &mut |_, _| {},
                                 &mut |bytes, index| {
                                     failed_prefixs.insert(SliceU8Wrapper(&bytes[..index + 1]), ());
@@ -144,14 +157,16 @@ impl<'a> Sampler<'a> {
                             self.grammar,
                             bytes,
                             true,
-                            &self.grammar.terminals_trie,
                             &mut |temp_stack: &[Option<StackItem<'_>>], top: Option<StackItem>| {
                                 let mut new_vec = Vec::with_capacity(temp_stack.len() + 1);
                                 new_vec.extend(temp_stack.iter().map(|x| x.unwrap()));
                                 if let Some(top) = top {
                                     new_vec.push(top);
                                 }
-                                self.stacks.push(new_vec);
+                                if !self.stacks[i+1..].iter().any(|x|*x==new_vec)
+                                {
+                                    self.stacks.push(new_vec);
+                                }
                             },
                             &mut |_, _| {},
                         );
@@ -165,12 +180,15 @@ impl<'a> Sampler<'a> {
             for i in (0..len).rev() {
                 self.stacks.swap_remove(i);
             }
-            self.stacks = Vec::from_iter(self.stacks.iter().unique().cloned());
             accepted
         };
-        let result = find_stacks_matching_bytes(bytes);
-        if bytes.is_some() && !result {
-            return false;
+        let mut result = true;
+        if bytes.is_some() {
+            result = find_stacks_matching_bytes(bytes);
+            if !result
+            {
+                return false;
+            }
         }
         result | find_stacks_matching_bytes(None)
     }
@@ -316,7 +334,6 @@ impl<'a> Sampler<'a> {
         grammar: &'a SimplifiedGrammar,
         bytes: Option<&'b [u8]>,
         find_all: bool,
-        trie: &TerminalsTrie,
         after_finding_stack: &mut F1,
         after_match_failed: &mut F2,
     ) -> bool
@@ -324,6 +341,7 @@ impl<'a> Sampler<'a> {
         F1: FnMut(&[Option<StackItem<'a>>], Option<StackItem<'a>>),
         F2: FnMut(&'b [u8], usize),
     {
+        let trie = &grammar.terminals_trie;
         let mut _find_stacks_matching_bytes =
             |mut arena: NonNull<BufferArena<StackItem<'a>>>,
              top: NonterminalID,
@@ -351,7 +369,6 @@ impl<'a> Sampler<'a> {
                                 grammar,
                                 bytes,
                                 find_all,
-                                trie,
                                 after_finding_stack,
                                 after_match_failed,
                             );
@@ -372,7 +389,6 @@ impl<'a> Sampler<'a> {
                             grammar,
                             bytes,
                             find_all,
-                            trie,
                             after_finding_stack,
                             after_match_failed,
                         );
