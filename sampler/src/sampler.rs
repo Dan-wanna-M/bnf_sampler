@@ -1,13 +1,13 @@
 use crate::simplified_grammar::SimplifiedExpressions;
 use crate::simplified_grammar::SimplifiedGrammar;
-use crate::stack::FixedBuffer;
 use crate::stack::BufferArena;
+use crate::stack::FixedBuffer;
 use crate::trie::TerminalsTrie;
-use bit_set::BitSet;
 use crate::trie::TrieNodeID;
 use crate::utils::NonterminalID;
 use crate::utils::SliceU8Wrapper;
 use crate::utils::VecU8Wrapper;
+use bit_set::BitSet;
 use bnf::Term;
 use itertools::Itertools;
 use qp_trie::Trie;
@@ -16,7 +16,7 @@ use std::ptr::NonNull;
 use std::time::Instant;
 use std::vec;
 
-const INVALID_INDEX:i32 = -1;
+const INVALID_INDEX: i32 = -1;
 
 #[derive(PartialEq, Clone, Debug, Copy, Eq, Hash)]
 pub enum StackItem<'a> {
@@ -31,7 +31,7 @@ pub struct Sampler<'a> {
     tokens_tree: Vec<(VecU8Wrapper, u32)>,
     stack_arena: BufferArena<StackItem<'a>>,
     stacks_to_token_ids: FxHashMap<Vec<Vec<StackItem<'a>>>, BitSet<u32>>,
-    token_ids: BitSet<u32>
+    token_ids: BitSet<u32>,
 }
 #[derive(Debug)]
 enum BytesMatchResults<'a> {
@@ -56,9 +56,9 @@ impl<'a> Sampler<'a> {
         let stacks = vec![vec![StackItem::Nonterminal(
             grammar.nonterminal_to_terminal_id[start_term],
         )]];
-        let token_ids: BitSet<u32> = BitSet::new();
+        let token_ids: BitSet<u32> = BitSet::with_capacity(u16::MAX.into());
         let stacks_to_token_ids = FxHashMap::default();
-        let tokens_tree = Vec::from_iter(tokens_tree.iter().map(|(k, v)|(k.clone(), *v)));
+        let tokens_tree = Vec::from_iter(tokens_tree.iter().map(|(k, v)| (k.clone(), *v)));
         Sampler {
             stacks,
             grammar,
@@ -73,25 +73,28 @@ impl<'a> Sampler<'a> {
         &mut self,
         previous_tokens: Option<&[u8]>,
     ) -> Option<&BitSet<u32>> {
+        let now = Instant::now();
         if !self.accept_tokens(previous_tokens) {
             return None;
         }
+        // println!("accepting tokens: {:?}", now.elapsed());
         self.token_ids.clear();
         Some(
             self.stacks_to_token_ids
                 .entry(self.stacks.clone())
                 .or_insert_with(|| {
                     for stack in self.stacks.iter() {
+                        let now = Instant::now();
                         let mut failed_prefixs: Trie<SliceU8Wrapper, ()> = Trie::new();
                         for (token, token_id) in self.tokens_tree.iter() {
                             if self.token_ids.contains(*token_id as usize)
-                                    || failed_prefixs.contains_key(
-                                        failed_prefixs
-                                            .longest_common_prefix(token.0.as_slice()),
-                                    )
-                                {
-                                    continue;
-                                }
+                                || failed_prefixs.contains_key(
+                                    failed_prefixs.longest_common_prefix(token.0.as_slice()),
+                                )
+                            {
+                                continue;
+                            }
+                            // println!("{:?}", String::from_utf8(token.0.clone()).unwrap());
                             let arena = unsafe {
                                 NonNull::new_unchecked(
                                     &mut self.stack_arena as *mut BufferArena<StackItem<'a>>,
@@ -108,8 +111,7 @@ impl<'a> Sampler<'a> {
                                 &self.grammar.terminals_trie,
                                 &mut |_, _| {},
                                 &mut |bytes, index| {
-                                    failed_prefixs
-                                        .insert(SliceU8Wrapper(&bytes[..index + 1]), ());
+                                    failed_prefixs.insert(SliceU8Wrapper(&bytes[..index + 1]), ());
                                 },
                             );
                             if result {
@@ -117,6 +119,7 @@ impl<'a> Sampler<'a> {
                             }
                             self.stack_arena.clear();
                         }
+                        // println!("stack: {:?}, {:?}", stack, now.elapsed());
                     }
                     self.token_ids.clone()
                 }),
@@ -180,7 +183,7 @@ impl<'a> Sampler<'a> {
         fn _match_stack_to_bytes<'a>(
             stack: &FixedBuffer<StackItem<'a>>,
             bytes: &[u8],
-            bytes_index:usize,
+            bytes_index: usize,
             trie: &TerminalsTrie,
             stack_offset: usize,
             shortest_failed_index: &mut usize,
@@ -192,30 +195,40 @@ impl<'a> Sampler<'a> {
             match stack[stack_offset] {
                 StackItem::Nonterminal(_) => {
                     result.push(BytesMatchResult {
-                        remaining_bytes_start:bytes_index as i32,
-                        stack_offset:stack_offset as u32,
+                        remaining_bytes_start: bytes_index as i32,
+                        stack_offset: stack_offset as u32,
                         modified_item_at_offset: None,
                     });
                 }
                 StackItem::Terminal(terminal) => {
-                    for i in bytes_index..terminal.len() {
-                        if bytes.len() == i {
+                    for i in 0..terminal.len() {
+                        if bytes.len() == i + bytes_index {
                             result.push(BytesMatchResult {
                                 remaining_bytes_start: INVALID_INDEX,
-                                stack_offset:stack_offset as u32,
+                                stack_offset: stack_offset as u32,
                                 modified_item_at_offset: Some(StackItem::Terminal(&terminal[i..])),
-                            })
-                        }
-                        if bytes[i] != terminal[i] {
-                            *shortest_failed_index = std::cmp::min(i, *shortest_failed_index);
+                            });
                             return;
                         }
+                        if bytes[i + bytes_index] != terminal[i] {
+                            *shortest_failed_index =
+                                std::cmp::min(i + bytes_index, *shortest_failed_index);
+                            return;
+                        }
+                    }
+                    if bytes.len() == terminal.len() {
+                        result.push(BytesMatchResult {
+                            remaining_bytes_start: INVALID_INDEX,
+                            stack_offset: stack_offset as u32,
+                            modified_item_at_offset: None,
+                        });
+                        return;
                     }
                     if stack_offset > 0 {
                         _match_stack_to_bytes(
                             stack,
                             bytes,
-                            terminal.len(),
+                            terminal.len() + bytes_index,
                             trie,
                             stack_offset - 1,
                             shortest_failed_index,
@@ -229,11 +242,14 @@ impl<'a> Sampler<'a> {
                         match current_node.children.get(&bytes[i]) {
                             Some(new_node_id) => {
                                 let new_node = trie.get(*new_node_id);
-                                if new_node.value.is_some() && stack_offset > 0&&i<bytes.len()-1 {
+                                if new_node.value.is_some()
+                                    && stack_offset > 0
+                                    && i < bytes.len() - 1
+                                {
                                     _match_stack_to_bytes(
                                         stack,
                                         bytes,
-                                        i+1,
+                                        i + 1,
                                         trie,
                                         stack_offset - 1,
                                         shortest_failed_index,
@@ -255,13 +271,13 @@ impl<'a> Sampler<'a> {
                     }
                     result.push(BytesMatchResult {
                         remaining_bytes_start: INVALID_INDEX,
-                        stack_offset:stack_offset as u32,
+                        stack_offset: stack_offset as u32,
                         modified_item_at_offset,
                     });
                     if current_node.value.is_some() {
                         result.push(BytesMatchResult {
                             remaining_bytes_start: INVALID_INDEX,
-                            stack_offset:stack_offset as u32,
+                            stack_offset: stack_offset as u32,
                             modified_item_at_offset: None,
                         });
                     }
@@ -274,7 +290,7 @@ impl<'a> Sampler<'a> {
             Some(bytes) => {
                 result.reserve(bytes.len());
                 let stack_offset = stack.len() - 1;
-                let mut shortest_failed_index = 0;
+                let mut shortest_failed_index = usize::MAX;
                 _match_stack_to_bytes(
                     stack,
                     bytes,
@@ -387,7 +403,6 @@ impl<'a> Sampler<'a> {
                             false
                         }
                         BytesMatchResults::Matches(possible_results) => {
-                            // println!("results: {:?}, {:?}", possible_results, stack);
                             if possible_results.is_empty() {
                                 after_finding_stack(stack.as_raw_slice(), None);
                                 return true;
