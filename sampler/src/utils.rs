@@ -4,7 +4,7 @@ use std::borrow::Borrow;
 use std::fs::File;
 use std::io::{prelude::*, BufReader};
 
-pub static ANY_NONTERMINAL_NAME: &str  = "any!";
+pub static ANY_NONTERMINAL_NAME: &str = "any!";
 
 #[derive(PartialEq, Clone, Debug, Copy, Eq)]
 pub struct NonterminalID(pub usize);

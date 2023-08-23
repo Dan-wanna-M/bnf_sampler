@@ -1,15 +1,13 @@
-
+use sampler::sampler::Sampler;
+use sampler::{simplified_grammar, utils};
 use std::time::Instant;
 use std::{fs, vec};
-use sampler::sampler::Sampler;
-use sampler::trie::TrieNodeID;
-use sampler::{utils, simplified_grammar};
 fn main() {
     let input = fs::read_to_string("./grammar.bnf").expect("grammar.bnf should exist.");
     let input = String::from_utf8(utils::fix_utf8_escape(&input)).unwrap();
     let (tree, map) = utils::read_world_vocab("vocab.txt");
     let grammar = simplified_grammar::SimplifiedGrammar::new(&input, &tree);
-    let mut machine = Sampler::new(&grammar, "dna", tree, 1024*1000);
+    let mut machine = Sampler::new(&grammar, "dna", tree, 1024 * 1000);
     // println!("{:?}", machine.stacks);
     let result: Vec<&str> = machine
         .all_possible_next_tokens(None)
@@ -17,9 +15,9 @@ fn main() {
         .iter()
         .map(|x| map[&(x as u32)].as_str())
         .collect();
-    println!("{:?}", result);
+    // println!("{:?}", result);
     let mut times: Vec<f64> = vec![];
-    println!("{:?}", machine.stacks);
+    // println!("{:?}", machine.stacks);
     let now = Instant::now();
     /*
     machine.all_possible_next_tokens(Some("statistics".as_bytes()));
@@ -27,7 +25,6 @@ fn main() {
     machine.all_possible_next_tokens(Some("vanyousee".as_bytes()));
     machine.all_possible_next_tokens(Some("asswecan".as_bytes()));
     */
-
     let end = now.elapsed();
     println!("Time used: {:?}", end / 1);
     // return;

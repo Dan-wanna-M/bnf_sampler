@@ -10,7 +10,6 @@ use crate::utils::SliceU8Wrapper;
 use crate::utils::VecU8Wrapper;
 use bit_set::BitSet;
 use bnf::Term;
-use itertools::Itertools;
 use qp_trie::Trie;
 use rustc_hash::FxHashMap;
 use std::ptr::NonNull;
@@ -80,14 +79,25 @@ impl<'a> Sampler<'a> {
         }
         println!("accepting tokens: {:?}", now.elapsed());
         self.token_ids.clear();
-        for stack in self.stacks.iter()
-        {
-            if let StackItem::Terminals(node_id) = stack.last().expect("The stack should not be empty.") {
-                if let Some((k,_)) = self.grammar.terminals_trie.roots.iter().find(|(_, v)|**v==*node_id)
+        for stack in self.stacks.iter() {
+            if let StackItem::Terminals(node_id) =
+                stack.last().expect("The stack should not be empty.")
+            {
+                if let Some((k, _)) = self
+                    .grammar
+                    .terminals_trie
+                    .roots
+                    .iter()
+                    .find(|(_, v)| **v == *node_id)
                 {
-                    if *k == self.grammar.nonterminal_to_terminal_id[utils::ANY_NONTERMINAL_NAME]
+                    if self
+                        .grammar
+                        .nonterminal_to_terminal_id
+                        .get(utils::ANY_NONTERMINAL_NAME)
+                        .is_some_and(|x| *k == *x)
                     {
-                        self.token_ids.extend(self.tokens_tree.iter().map(|(_, v)|(*v) as usize));
+                        self.token_ids
+                            .extend(self.tokens_tree.iter().map(|(_, v)| (*v) as usize));
                         break;
                     }
                 }
@@ -98,7 +108,7 @@ impl<'a> Sampler<'a> {
                 .entry(self.stacks.clone())
                 .or_insert_with(|| {
                     for stack in self.stacks.iter() {
-                        let now = Instant::now();
+                        // let now = Instant::now();
                         let mut failed_prefixs: Trie<SliceU8Wrapper, ()> = Trie::new();
                         for (token, token_id) in self.tokens_tree.iter() {
                             if self.token_ids.contains(*token_id as usize)
@@ -163,8 +173,7 @@ impl<'a> Sampler<'a> {
                                 if let Some(top) = top {
                                     new_vec.push(top);
                                 }
-                                if !self.stacks[i+1..].iter().any(|x|*x==new_vec)
-                                {
+                                if !self.stacks[i + 1..].iter().any(|x| *x == new_vec) {
                                     self.stacks.push(new_vec);
                                 }
                             },
@@ -185,8 +194,7 @@ impl<'a> Sampler<'a> {
         let mut result = true;
         if bytes.is_some() {
             result = find_stacks_matching_bytes(bytes);
-            if !result
-            {
+            if !result {
                 return false;
             }
         }
@@ -283,15 +291,14 @@ impl<'a> Sampler<'a> {
                             }
                         }
                     }
-                    let mut modified_item_at_offset = None;
+
                     if !current_node.children.is_empty() {
-                        modified_item_at_offset = Some(StackItem::Terminals(current_node_id));
+                        result.push(BytesMatchResult {
+                            remaining_bytes_start: INVALID_INDEX,
+                            stack_offset: stack_offset as u32,
+                            modified_item_at_offset: Some(StackItem::Terminals(current_node_id)),
+                        });
                     }
-                    result.push(BytesMatchResult {
-                        remaining_bytes_start: INVALID_INDEX,
-                        stack_offset: stack_offset as u32,
-                        modified_item_at_offset,
-                    });
                     if current_node.value.is_some() {
                         result.push(BytesMatchResult {
                             remaining_bytes_start: INVALID_INDEX,

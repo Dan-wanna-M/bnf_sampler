@@ -1,5 +1,5 @@
-use std::{collections::HashMap, hash::Hash};
 use nohash_hasher::BuildNoHashHasher;
+use std::{collections::HashMap, hash::Hash};
 
 use crate::utils::NonterminalID;
 #[derive(Clone, Debug)]
@@ -64,17 +64,14 @@ impl TerminalsTrie {
     }
 
     pub fn add(&mut self, terminal: &[u8], nonterminal_id: NonterminalID) {
-        let mut current_node_id = *self
-            .roots
-            .entry(nonterminal_id)
-            .or_insert(Self::new_node(
-                &mut self.arena,
-                TrieNode {
-                    index: 0,
-                    value: None,
-                    children: HashMap::default(),
-                },
-            ));
+        let mut current_node_id = *self.roots.entry(nonterminal_id).or_insert(Self::new_node(
+            &mut self.arena,
+            TrieNode {
+                index: 0,
+                value: None,
+                children: HashMap::default(),
+            },
+        ));
         for i in terminal {
             let matched_child_node = self.get(current_node_id).children.get(i);
             match matched_child_node {
@@ -100,7 +97,7 @@ impl TerminalsTrie {
         temp.extend_from_slice(terminal);
         self.get_mut(current_node_id).value = Some(temp);
     }
-
+    /*
     pub fn iter(&self, start_node_id: TrieNodeID) -> TerminalsTrieIter {
         let stack = vec![self.get(start_node_id).children.iter()];
         return TerminalsTrieIter {
@@ -109,6 +106,7 @@ impl TerminalsTrie {
             stack,
         };
     }
+    */
 }
 #[derive(PartialEq, Clone, Debug, Copy, Eq, Hash)]
 pub struct TrieNodeID {

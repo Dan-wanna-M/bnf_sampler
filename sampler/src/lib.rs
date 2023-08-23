@@ -1,8 +1,8 @@
-pub mod simplified_grammar;
 pub mod sampler;
+pub mod simplified_grammar;
+pub mod stack;
 pub mod trie;
 pub mod utils;
-pub mod stack;
 use mimalloc::MiMalloc;
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;

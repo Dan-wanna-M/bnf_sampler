@@ -3,6 +3,7 @@ use crate::trie::TrieNodeID;
 use crate::utils;
 use crate::utils::NonterminalID;
 use crate::utils::VecU8Wrapper;
+use bnf::Production;
 use bnf::{Grammar, Term};
 use qp_trie::Trie;
 use rustc_hash::FxHashMap;
@@ -20,8 +21,13 @@ pub(crate) enum SimplifiedExpressions {
 }
 impl SimplifiedGrammar {
     pub fn new(input: &str, tokens_tree: &Trie<VecU8Wrapper, u32>) -> Self {
-        let input = format!("<{}>::=' '", utils::ANY_NONTERMINAL_NAME)+input+"\n";
-        let grammar: Grammar = input.parse().unwrap();
+        let any_present = input.contains(&format!("<{}>", utils::ANY_NONTERMINAL_NAME));
+        let mut grammar: Grammar = input.parse().unwrap();
+        if any_present {
+            let mut any_prod = Production::new();
+            any_prod.lhs = Term::Nonterminal(utils::ANY_NONTERMINAL_NAME.to_string());
+            grammar.add_production(any_prod);
+        }
         let mut simplified_grammar: FxHashMap<String, FxHashSet<Vec<Term>>> = FxHashMap::default();
         for i in grammar.productions_iter() {
             let key = match &i.lhs {
@@ -60,17 +66,24 @@ impl SimplifiedGrammar {
             .enumerate()
             .map(|(i, (key, _))| (key.clone(), NonterminalID(i)))
             .collect();
-        simplified_grammar.remove(utils::ANY_NONTERMINAL_NAME);
-        simplified_grammar.insert(utils::ANY_NONTERMINAL_NAME.to_string(), tokens_tree.keys().map(|k|vec![Term::Terminal(String::from_utf8(k.0.clone()).unwrap())]).collect());
         let mut terminals_arena = TerminalsTrie::new();
-        
-        for (key, _) in tokens_tree.iter() {
-            terminals_arena.add(
-                key.0.as_slice(),
-                nonterminal_to_terminal_id[utils::ANY_NONTERMINAL_NAME],
-            )
+        if any_present {
+            simplified_grammar.remove(utils::ANY_NONTERMINAL_NAME);
+            simplified_grammar.insert(
+                utils::ANY_NONTERMINAL_NAME.to_string(),
+                tokens_tree
+                    .keys()
+                    .map(|k| vec![Term::Terminal(String::from_utf8(k.0.clone()).unwrap())])
+                    .collect(),
+            );
+            for (key, _) in tokens_tree.iter() {
+                terminals_arena.add(
+                    key.0.as_slice(),
+                    nonterminal_to_terminal_id[utils::ANY_NONTERMINAL_NAME],
+                )
+            }
         }
-        
+
         let mut new_simplified_grammar: FxHashMap<String, SimplifiedExpressions> =
             simplified_grammar
                 .into_iter()
@@ -98,14 +111,15 @@ impl SimplifiedGrammar {
                     }
                 })
                 .collect();
-        
-        new_simplified_grammar.insert(
-            utils::ANY_NONTERMINAL_NAME.to_string(),
-            SimplifiedExpressions::Terminals(
-                terminals_arena.roots[&nonterminal_to_terminal_id[utils::ANY_NONTERMINAL_NAME]],
-            ),
-        );
-        
+        if any_present {
+            new_simplified_grammar.insert(
+                utils::ANY_NONTERMINAL_NAME.to_string(),
+                SimplifiedExpressions::Terminals(
+                    terminals_arena.roots[&nonterminal_to_terminal_id[utils::ANY_NONTERMINAL_NAME]],
+                ),
+            );
+        }
+
         let nonterminal_id_to_expression: FxHashMap<NonterminalID, SimplifiedExpressions> =
             new_simplified_grammar
                 .iter()

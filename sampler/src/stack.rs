@@ -1,4 +1,4 @@
-use std::ops::{IndexMut, Index, RangeTo};
+use std::ops::{Index, RangeTo};
 
 #[derive(Clone, Debug)]
 pub(crate) struct BufferArena<T: Clone + Copy> {
@@ -35,19 +35,29 @@ pub(crate) struct FixedBuffer<'a, T: Copy> {
     top: usize,
 }
 
-impl<'a, T: Copy> Index<usize> for FixedBuffer<'a, T>  {
-    type Output=T;
+impl<'a, T: Copy> Index<usize> for FixedBuffer<'a, T> {
+    type Output = T;
 
     fn index(&self, index: usize) -> &Self::Output {
-        assert!(index<self.top, "the length of the stack is {}, but the index is {}", self.top, index);
+        assert!(
+            index < self.top,
+            "the length of the stack is {}, but the index is {}",
+            self.top,
+            index
+        );
         self.buffer[index].as_ref().unwrap()
     }
 }
-impl<'a, T: Copy> Index<RangeTo<usize>> for FixedBuffer<'a, T>  {
-    type Output=[Option<T>];
+impl<'a, T: Copy> Index<RangeTo<usize>> for FixedBuffer<'a, T> {
+    type Output = [Option<T>];
 
     fn index(&self, index: RangeTo<usize>) -> &Self::Output {
-        assert!(index.end<self.top, "the length of the stack is {}, but the range is {:?}", self.top, index);
+        assert!(
+            index.end < self.top,
+            "the length of the stack is {}, but the range is {:?}",
+            self.top,
+            index
+        );
         &self.buffer[index]
     }
 }
@@ -93,11 +103,10 @@ impl<'a, T: Copy> FixedBuffer<'a, T> {
         self.top = source.len();
     }
 
-    pub fn as_raw_slice(&self)->&[Option<T>]
-    {
+    pub fn as_raw_slice(&self) -> &[Option<T>] {
         &self.buffer[..self.top]
     }
-
+    /*
     pub fn to_vec(&self) -> Vec<T> {
         let mut temp = Vec::with_capacity(self.top);
         for i in 0..self.top {
@@ -107,11 +116,12 @@ impl<'a, T: Copy> FixedBuffer<'a, T> {
         }
         temp
     }
+    */
 
     pub fn len(&self) -> usize {
         self.top
     }
-
+    /*
     pub fn copy_from(&mut self, source: &Self) {
         assert!(self.top == 0);
         for i in 0..source.top {
@@ -119,4 +129,5 @@ impl<'a, T: Copy> FixedBuffer<'a, T> {
         }
         self.top = source.top;
     }
+    */
 }
