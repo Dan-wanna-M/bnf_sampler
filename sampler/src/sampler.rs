@@ -28,7 +28,8 @@ pub enum StackItem<'a> {
 pub struct Sampler<'a> {
     pub stacks: Vec<Vec<StackItem<'a>>>,
     grammar: &'a SimplifiedGrammar,
-    tokens_tree: Vec<(VecU8Wrapper, u32)>,
+    tokens_buffer: Vec<(VecU8Wrapper, u32)>,
+    tokens_tree: Trie<VecU8Wrapper, u32>,
     stack_arena: BufferArena<StackItem<'a>>,
     stacks_to_token_ids: FxHashMap<Vec<Vec<StackItem<'a>>>, BitSet<u32>>,
     token_ids: BitSet<u32>,
@@ -45,6 +46,92 @@ struct BytesMatchResult<'a> {
     modified_item_at_offset: Option<StackItem<'a>>,
 }
 
+enum TokensIterType<'a> {
+    Flat(std::slice::Iter<'a, (VecU8Wrapper, u32)>),
+    SinglePrefix(qp_trie::Iter<'a, VecU8Wrapper, u32>),
+    MultiplePrefixs(
+        (
+            std::collections::hash_map::Keys<'a, u8, TrieNodeID>,
+            Option<qp_trie::Iter<'a, VecU8Wrapper, u32>>,
+        ),
+    ),
+}
+
+struct BufferOrTreeIter<'a> {
+    tokens_buffer_iter: TokensIterType<'a>,
+    tokens_tree: &'a Trie<VecU8Wrapper, u32>,
+    current_prefixs: VecU8Wrapper,
+}
+
+impl<'a, 'b> BufferOrTreeIter<'a> {
+    pub fn new(
+        tokens_buffer: &'a [(VecU8Wrapper, u32)],
+        tokens_tree: &'a Trie<VecU8Wrapper, u32>,
+        trie: &'a TerminalsTrie,
+        current_top: StackItem<'b>,
+    ) -> Self {
+        let tokens_buffer_iter = match current_top {
+            StackItem::Terminal(terminal) => TokensIterType::SinglePrefix(
+                tokens_tree.iter_prefix(tokens_tree.longest_common_prefix(terminal)),
+            ),
+            StackItem::Terminals(node_id) => {
+                let node = trie.get(node_id);
+                if node.children.len() > (u8::MAX / 2).into() {
+                    TokensIterType::Flat(tokens_buffer.iter())
+                } else {
+                    TokensIterType::MultiplePrefixs((node.children.keys(), None))
+                }
+            }
+            StackItem::Nonterminal(_) => panic!("No nonterminals should be here."),
+        };
+        BufferOrTreeIter {
+            tokens_buffer_iter,
+            tokens_tree,
+            current_prefixs: VecU8Wrapper(Vec::with_capacity(8)),
+        }
+    }
+}
+
+impl<'a> Iterator for BufferOrTreeIter<'a> {
+    type Item = (&'a VecU8Wrapper, &'a u32);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let result;
+        match &mut self.tokens_buffer_iter {
+            TokensIterType::Flat(buffer_iter) => {
+                result = buffer_iter.next().map(|(k, v)| (k, v));
+            }
+            TokensIterType::SinglePrefix(trie_iter) => {
+                result = trie_iter.next();
+            }
+            TokensIterType::MultiplePrefixs((keys, trie_iter)) => match trie_iter {
+                None => {
+                    let mut trie_iter = None;
+                    result = keys.next().and_then(|key| {
+                        self.current_prefixs.0.push(*key);
+                        let mut iter = self.tokens_tree.iter_prefix(&self.current_prefixs);
+                        self.current_prefixs.0.clear();
+                        let temp = iter.next();
+                        trie_iter = Some(iter);
+                        temp
+                    });
+                }
+                Some(trie_iter) => {
+                    result = trie_iter.next().or_else(|| {
+                        keys.next().and_then(|key| {
+                            self.current_prefixs.0.push(*key);
+                            *trie_iter = self.tokens_tree.iter_prefix(&self.current_prefixs);
+                            self.current_prefixs.0.clear();
+                            trie_iter.next()
+                        })
+                    });
+                }
+            },
+        };
+        result
+    }
+}
+
 impl<'a> Sampler<'a> {
     /// Create a new Sampler with simplified grammar
     pub fn new(
@@ -58,11 +145,12 @@ impl<'a> Sampler<'a> {
         )]];
         let token_ids: BitSet<u32> = BitSet::with_capacity(u16::MAX.into());
         let stacks_to_token_ids = FxHashMap::default();
-        let tokens_tree = Vec::from_iter(tokens_tree.iter().map(|(k, v)| (k.clone(), *v)));
+        let tokens_buffer = Vec::from_iter(tokens_tree.iter().map(|(k, v)| (k.clone(), *v)));
         Sampler {
             stacks,
             grammar,
             tokens_tree,
+            tokens_buffer,
             stacks_to_token_ids,
             token_ids,
             stack_arena: BufferArena::with_capacity(stack_arena_capacity),
@@ -77,7 +165,7 @@ impl<'a> Sampler<'a> {
         if !self.accept_tokens(previous_tokens) {
             return None;
         }
-        println!("accepting tokens: {:?}", now.elapsed());
+        // println!("accepting tokens: {:?}", now.elapsed());
         self.token_ids.clear();
         for stack in self.stacks.iter() {
             if let StackItem::Terminals(node_id) =
@@ -110,7 +198,13 @@ impl<'a> Sampler<'a> {
                     for stack in self.stacks.iter() {
                         // let now = Instant::now();
                         let mut failed_prefixs: Trie<SliceU8Wrapper, ()> = Trie::new();
-                        for (token, token_id) in self.tokens_tree.iter() {
+                        let iter = BufferOrTreeIter::new(
+                            &self.tokens_buffer,
+                            &self.tokens_tree,
+                            &self.grammar.terminals_trie,
+                            *stack.last().unwrap(),
+                        );
+                        for (token, token_id) in iter {
                             if self.token_ids.contains(*token_id as usize)
                                 || failed_prefixs.contains_key(
                                     failed_prefixs.longest_common_prefix(token.0.as_slice()),
