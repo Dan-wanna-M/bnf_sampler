@@ -1,5 +1,6 @@
 use crate::simplified_grammar::SimplifiedExpressions;
 use crate::simplified_grammar::SimplifiedGrammar;
+use crate::simplified_grammar::U8Term;
 use crate::stack::BufferArena;
 use crate::stack::FixedBuffer;
 use crate::trie::TerminalsTrie;
@@ -9,7 +10,6 @@ use crate::utils::NonterminalID;
 use crate::utils::SliceU8Wrapper;
 use crate::utils::VecU8Wrapper;
 use bit_set::BitSet;
-use bnf::Term;
 use qp_trie::Trie;
 use rustc_hash::FxHashMap;
 use std::ptr::NonNull;
@@ -458,8 +458,8 @@ impl<'a> Sampler<'a> {
                             temp_stack.copy_from_raw_slice(stack);
                             for term in expression.iter().rev() {
                                 temp_stack.push(match term {
-                                    Term::Terminal(value) => StackItem::Terminal(value.as_bytes()),
-                                    Term::Nonterminal(value) => StackItem::Nonterminal(
+                                    U8Term::Terminal(value) => StackItem::Terminal(value.as_slice()),
+                                    U8Term::Nonterminal(value) => StackItem::Nonterminal(
                                         grammar.nonterminal_to_terminal_id[value],
                                     ),
                                 });

@@ -36,6 +36,7 @@ fn main() {
             .read_line(&mut input)
             .expect("Input should exist");
         let input = utils::fix_utf8_escape(input.trim());
+        println!("{:?}", input);
         let now = Instant::now();
         let result: Vec<&str> = match machine.all_possible_next_tokens(Some(&input)) {
             Some(result) => result.iter().map(|x| map[&(x as u32)].as_str()).collect(),

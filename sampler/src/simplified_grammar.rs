@@ -8,6 +8,13 @@ use bnf::{Grammar, Term};
 use qp_trie::Trie;
 use rustc_hash::FxHashMap;
 use rustc_hash::FxHashSet;
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+pub(crate) enum U8Term
+{
+    Terminal(Vec<u8>),
+    Nonterminal(String)
+}
+
 #[derive(Clone, Debug)]
 pub struct SimplifiedGrammar {
     pub(crate) nonterminal_id_to_expression: FxHashMap<NonterminalID, SimplifiedExpressions>,
@@ -16,7 +23,7 @@ pub struct SimplifiedGrammar {
 }
 #[derive(Clone, Debug)]
 pub(crate) enum SimplifiedExpressions {
-    Expressions(FxHashSet<Vec<Term>>),
+    Expressions(FxHashSet<Vec<U8Term>>),
     Terminals(TrieNodeID),
 }
 impl SimplifiedGrammar {
@@ -28,7 +35,7 @@ impl SimplifiedGrammar {
             any_prod.lhs = Term::Nonterminal(utils::ANY_NONTERMINAL_NAME.to_string());
             grammar.add_production(any_prod);
         }
-        let mut simplified_grammar: FxHashMap<String, FxHashSet<Vec<Term>>> = FxHashMap::default();
+        let mut simplified_grammar: FxHashMap<String, FxHashSet<Vec<U8Term>>> = FxHashMap::default();
         for i in grammar.productions_iter() {
             let key = match &i.lhs {
                 Term::Terminal(x) => x,
@@ -38,7 +45,7 @@ impl SimplifiedGrammar {
                 .entry(key.clone())
                 .or_insert(FxHashSet::default())
                 .extend(i.rhs_iter().map(|x| {
-                    let mut temp_vec: Vec<Term> = vec![];
+                    let mut temp_vec: Vec<U8Term> = vec![];
                     let mut temp_string: Option<String> = None;
                     for i in x.terms_iter() {
                         match i {
@@ -46,17 +53,17 @@ impl SimplifiedGrammar {
                                 Some(value) => temp_string = Some(value + x),
                                 None => temp_string = Some(x.clone()),
                             },
-                            Term::Nonterminal(_) => {
+                            Term::Nonterminal(nonterminal) => {
                                 if let Some(value) = temp_string {
-                                    temp_vec.push(Term::Terminal(value));
+                                    temp_vec.push(U8Term::Terminal(utils::fix_utf8_escape(&value)));
                                     temp_string = None;
                                 }
-                                temp_vec.push(i.clone());
+                                temp_vec.push(U8Term::Nonterminal(nonterminal.clone()));
                             }
                         }
                     }
                     if let Some(value) = temp_string {
-                        temp_vec.push(Term::Terminal(value));
+                        temp_vec.push(U8Term::Terminal(value.as_bytes().to_vec()));
                     }
                     temp_vec
                 }));
@@ -73,7 +80,7 @@ impl SimplifiedGrammar {
                 utils::ANY_NONTERMINAL_NAME.to_string(),
                 tokens_tree
                     .keys()
-                    .map(|k| vec![Term::Terminal(String::from_utf8(k.0.clone()).unwrap())])
+                    .map(|k| vec![U8Term::Terminal(k.0.clone())])
                     .collect(),
             );
             for (key, _) in tokens_tree.iter() {
@@ -91,16 +98,20 @@ impl SimplifiedGrammar {
                     if v.iter().all(|terms| {
                         terms.len() == 1
                             && match terms.last().unwrap() {
-                                Term::Terminal(_) => true,
-                                Term::Nonterminal(_) => false,
+                                U8Term::Terminal(_) => true,
+                                U8Term::Nonterminal(_) => false,
                             }
                     }) {
                         for i in v.into_iter() {
                             let value = match i.last().unwrap() {
-                                Term::Terminal(value) => value,
+                                U8Term::Terminal(value) => value,
                                 _ => panic!("There should only be terminals."),
                             };
-                            terminals_arena.add(value.as_bytes(), nonterminal_to_terminal_id[&k]);
+                            if value.contains(&240)
+                            {
+                                println!("{:?}", value);
+                            }
+                            terminals_arena.add(value, nonterminal_to_terminal_id[&k]);
                         }
                         let v = SimplifiedExpressions::Terminals(
                             terminals_arena.roots[&nonterminal_to_terminal_id[&k]],

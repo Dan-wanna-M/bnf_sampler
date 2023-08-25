@@ -90,7 +90,7 @@ pub fn read_world_vocab(file_name: &str) -> (Trie<VecU8Wrapper, u32>, FxHashMap<
         let token = fix_utf8_escape(&line[start..end]);
         tree.insert(VecU8Wrapper(token.clone()), token_id);
         // println!("{:?}", String::from_utf8(token.clone()));
-        map.insert(token_id, String::from_utf8(token).unwrap());
+        map.insert(token_id, String::from_utf8_lossy(&token).to_string());
     }
     (tree, map)
 }
@@ -117,13 +117,6 @@ pub fn fix_utf8_escape(token: &str) -> Vec<u8> {
         let mut temp = [0, 0, 0, 0];
         buffer.extend(c.encode_utf8(&mut temp).as_bytes());
     };
-    let process_hex_digits = |hex_digit_len: usize, token: &str, buffer: &mut Vec<u8>| {
-        let hex_digits: String = token.chars().skip(2).take(hex_digit_len).collect();
-        convert_to_utf8(
-            char::from_u32(u32::from_str_radix(&hex_digits, 16).unwrap()).unwrap(),
-            buffer,
-        );
-    };
     while !token.is_empty() {
         let c = token.chars().next().unwrap();
         if c == '\\' {
@@ -138,10 +131,15 @@ pub fn fix_utf8_escape(token: &str) -> Vec<u8> {
                 result.push(b'\r');
                 token = &token[2..];
             } else if next_c == 'x' {
-                process_hex_digits(2, token, &mut result);
+                let hex_digits: String = token.chars().skip(2).take(2).collect();
+                result.push(u8::from_str_radix(&hex_digits, 16).unwrap());
                 token = &token[4..];
             } else if next_c == 'u' {
-                process_hex_digits(4, token, &mut result);
+                let hex_digits: String = token.chars().skip(2).take(4).collect();
+                convert_to_utf8(
+                    char::from_u32(u32::from_str_radix(&hex_digits, 16).unwrap()).unwrap(),
+                    &mut result,
+                );
                 token = &token[6..];
             } else {
                 result.push(next_c as u8);

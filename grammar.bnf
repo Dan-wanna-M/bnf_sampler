@@ -1,6 +1,6 @@
 <dna> ::= '我是土豆'<sequence>
-<sequence> ::= <any!>|<any!><sequence>
+<sequence> ::= <escape>|<escape><sequence>
 <digit> ::= '1'|'2'|'3'|'4'
-<b> ::= 'A@#'
+<escape> ::= '\x00'|'\x01'
 <base> ::='a'|'b'|'c'|'d'|'e'|'f'|'g'|'h'|'i'|'j'|'k'|'l'|'m'|'n'|'o'|'p'|'q'|'r'|'s'|'t'|'u'|'v'|'w'|'x'|'y'|'z'|' '
 <char> ::='我是野兽'|'我，黄鹤'|'一'|'个'|'是'|'我'
