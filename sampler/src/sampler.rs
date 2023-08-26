@@ -5,6 +5,7 @@ use crate::stack::BufferArena;
 use crate::stack::FixedBuffer;
 use crate::trie::TerminalsTrie;
 use crate::trie::TrieNodeID;
+use crate::trie::TrieNodeIDIter;
 use crate::utils;
 use crate::utils::NonterminalID;
 use crate::utils::SliceU8Wrapper;
@@ -51,7 +52,7 @@ enum TokensIterType<'a> {
     SinglePrefix(qp_trie::Iter<'a, VecU8Wrapper, u32>),
     MultiplePrefixs(
         (
-            std::collections::hash_map::Keys<'a, u8, TrieNodeID>,
+            TrieNodeIDIter<'a>,
             Option<qp_trie::Iter<'a, VecU8Wrapper, u32>>,
         ),
     ),
@@ -79,7 +80,7 @@ impl<'a, 'b> BufferOrTreeIter<'a> {
                 if node.children.len() > (u8::MAX / 2).into() {
                     TokensIterType::Flat(tokens_buffer.iter())
                 } else {
-                    TokensIterType::MultiplePrefixs((node.children.keys(), None))
+                    TokensIterType::MultiplePrefixs((node.children(), None))
                 }
             }
             StackItem::Nonterminal(_) => panic!("No nonterminals should be here."),
@@ -107,8 +108,8 @@ impl<'a> Iterator for BufferOrTreeIter<'a> {
             TokensIterType::MultiplePrefixs((keys, trie_iter)) => match trie_iter {
                 None => {
                     let mut trie_iter = None;
-                    result = keys.next().and_then(|key| {
-                        self.current_prefixs.0.push(*key);
+                    result = keys.next().and_then(|(key, _)| {
+                        self.current_prefixs.0.push(key as u8);
                         let mut iter = self.tokens_tree.iter_prefix(&self.current_prefixs);
                         self.current_prefixs.0.clear();
                         let temp = iter.next();
@@ -118,8 +119,8 @@ impl<'a> Iterator for BufferOrTreeIter<'a> {
                 }
                 Some(trie_iter) => {
                     result = trie_iter.next().or_else(|| {
-                        keys.next().and_then(|key| {
-                            self.current_prefixs.0.push(*key);
+                        keys.next().and_then(|(key, _)| {
+                            self.current_prefixs.0.push(key as u8);
                             *trie_iter = self.tokens_tree.iter_prefix(&self.current_prefixs);
                             self.current_prefixs.0.clear();
                             trie_iter.next()
@@ -167,6 +168,7 @@ impl<'a> Sampler<'a> {
         }
         // println!("accepting tokens: {:?}", now.elapsed());
         self.token_ids.clear();
+        /*
         for stack in self.stacks.iter() {
             if let StackItem::Terminals(node_id) =
                 stack.last().expect("The stack should not be empty.")
@@ -191,6 +193,7 @@ impl<'a> Sampler<'a> {
                 }
             }
         }
+        */
         Some(
             self.stacks_to_token_ids
                 .entry(self.stacks.clone())
@@ -359,7 +362,7 @@ impl<'a> Sampler<'a> {
                 StackItem::Terminals(mut current_node_id) => {
                     let mut current_node = trie.get(current_node_id);
                     for i in bytes_index..bytes.len() {
-                        match current_node.children.get(&bytes[i]) {
+                        match current_node.get_child(&bytes[i]) {
                             Some(new_node_id) => {
                                 let new_node = trie.get(*new_node_id);
                                 if new_node.value.is_some()

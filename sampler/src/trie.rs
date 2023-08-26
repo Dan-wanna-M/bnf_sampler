@@ -10,7 +10,7 @@ pub(crate) struct TerminalsTrie {
 #[derive(Clone, Debug)]
 pub(crate) struct TerminalsTrieIter<'a> {
     initial_index: usize,
-    pub stack: Vec<std::collections::hash_map::Iter<'a, u8, TrieNodeID>>,
+    pub stack: Vec<TrieNodeIDIter<'a>>,
     trie: &'a TerminalsTrie,
 }
 
@@ -28,7 +28,7 @@ impl<'a> Iterator for TerminalsTrieIter<'a> {
                         self.stack.pop();
                     }
                     Some((_, v)) => {
-                        self.stack.push(self.trie.get(*v).children.iter());
+                        self.stack.push(self.trie.get(*v).children());
                         if let Some(value) = &self.trie.get(*v).value {
                             return Some(&value[self.initial_index..]);
                         }
@@ -41,7 +41,7 @@ impl<'a> Iterator for TerminalsTrieIter<'a> {
 
 impl TerminalsTrie {
     pub fn new() -> Self {
-        let arena = Vec::new();
+        let arena = vec![TrieNode{index:0, value:None, children:[INVALID_NODE_ID; 256]}];
         TerminalsTrie {
             roots: HashMap::default(),
             arena,
@@ -69,11 +69,11 @@ impl TerminalsTrie {
             TrieNode {
                 index: 0,
                 value: None,
-                children: HashMap::default(),
+                children: [INVALID_NODE_ID; 256],
             },
         ));
         for i in terminal {
-            let matched_child_node = self.get(current_node_id).children.get(i);
+            let matched_child_node = self.get(current_node_id).get_child(i);
             match matched_child_node {
                 None => {
                     let index = self.get(current_node_id).index + 1;
@@ -82,7 +82,7 @@ impl TerminalsTrie {
                         TrieNode {
                             index,
                             value: None,
-                            children: HashMap::default(),
+                            children: [INVALID_NODE_ID; 256],
                         },
                     );
                     self.get_mut(current_node_id).append(*i, new_node_id);
@@ -108,6 +108,8 @@ impl TerminalsTrie {
     }
     */
 }
+
+const INVALID_NODE_ID: TrieNodeID = TrieNodeID{id: 0};
 #[derive(PartialEq, Clone, Debug, Copy, Eq, Hash)]
 pub struct TrieNodeID {
     pub id: usize,
@@ -116,11 +118,48 @@ pub struct TrieNodeID {
 pub(crate) struct TrieNode {
     pub index: usize,
     pub value: Option<Vec<u8>>,
-    pub children: HashMap<u8, TrieNodeID, BuildNoHashHasher<u8>>,
+    pub children: [TrieNodeID; 256],
+}
+#[derive(Clone, Debug)]
+pub(crate) struct TrieNodeIDIter<'a> {
+    children_iter: std::slice::Iter<'a, TrieNodeID>,
+    count:usize
+}
+
+impl<'a> Iterator for TrieNodeIDIter<'a> {
+    type Item=(usize, &'a TrieNodeID);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            let result = self.children_iter.next()?;
+            if *result==INVALID_NODE_ID
+            {
+                continue;
+            }
+            self.count+=1;
+            return Some((self.count, result));
+        }
+        
+    }
 }
 
 impl TrieNode {
     pub fn append(&mut self, byte: u8, node_id: TrieNodeID) {
-        self.children.insert(byte, node_id);
+        self.children[byte as usize] = node_id;
+    }
+
+    pub fn get_child(&self, byte: &u8)->Option<&TrieNodeID>
+    {
+        let child = &self.children[*byte as usize];
+        if *child == INVALID_NODE_ID
+        {
+            return None;
+        }
+        Some(child)
+    }
+    pub fn children(&self)->TrieNodeIDIter
+    {
+        let iter = self.children.iter();
+        TrieNodeIDIter { children_iter: iter, count:0 }
     }
 }

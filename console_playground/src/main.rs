@@ -17,17 +17,18 @@ fn main() {
         .collect();
     // println!("{:?}", result);
     let mut times: Vec<f64> = vec![];
+    machine.all_possible_next_tokens(Some("我是土豆".as_bytes()));
     // println!("{:?}", machine.stacks);
     let now = Instant::now();
-    /*
+    
     machine.all_possible_next_tokens(Some("statistics".as_bytes()));
     machine.all_possible_next_tokens(Some("takeitboy".as_bytes()));
     machine.all_possible_next_tokens(Some("vanyousee".as_bytes()));
     machine.all_possible_next_tokens(Some("asswecan".as_bytes()));
-    */
+    
     let end = now.elapsed();
-    println!("Time used: {:?}", end / 1);
-    // return;
+    println!("Time used: {:?}", end / 4);
+    return;
     loop {
         // println!("{:?}",grammar.nonterminal_to_terminal_id);
         println!("Input a token: ");

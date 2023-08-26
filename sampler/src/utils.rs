@@ -1,10 +1,27 @@
+use lazy_static::lazy_static;
 use qp_trie::Trie;
+use regex::Regex;
+use regex::bytes::Regex as BytesRegex;
 use rustc_hash::FxHashMap;
 use std::borrow::Borrow;
 use std::fs::File;
-use std::io::{prelude::*, BufReader};
+use std::io::{prelude::*, BufReader}; // 1.4.0
 
 pub static ANY_NONTERMINAL_NAME: &str = "any!";
+lazy_static! {
+    pub static ref EXCEPT_LITERAL_REGEX: Regex =
+        Regex::new("except!\\(['\"](.+?)['\"]|(<.+?>)\\)").unwrap();
+}
+lazy_static! {
+    pub static ref EXCEPT_NONTERMINAL_REGEX: Regex =
+        Regex::new("except!\\((<.+?>)\\)").unwrap();
+}
+pub fn extract_excepted<'a>(regex: &Regex, except_nonterminal: &'a str) -> Option<&'a str> {
+    Some(regex
+        .captures(except_nonterminal)?
+        .extract::<1>()
+        .1[0])
+}
 
 #[derive(PartialEq, Clone, Debug, Copy, Eq)]
 pub struct NonterminalID(pub usize);
