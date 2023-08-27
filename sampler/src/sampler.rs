@@ -31,7 +31,7 @@ pub struct Sampler<'a> {
     pub stacks: Vec<Vec<StackItem<'a>>>,
     grammar: &'a SimplifiedGrammar,
     tokens_buffer: Vec<(VecU8Wrapper, u32)>,
-    tokens_tree: Trie<VecU8Wrapper, u32>,
+    tokens_tree: &'a Trie<VecU8Wrapper, u32>,
     stack_arena: BufferArena<StackItem<'a>>,
     stacks_to_token_ids: FxHashMap<Vec<Vec<StackItem<'a>>>, BitSet<u32>>,
     token_ids: BitSet<u32>,
@@ -148,11 +148,10 @@ impl<'a> Iterator for BufferOrTreeIter<'a> {
 }
 
 impl<'a> Sampler<'a> {
-    /// Create a new Sampler with simplified grammar
     pub fn new(
         grammar: &'a SimplifiedGrammar,
         start_term: &str,
-        tokens_tree: Trie<VecU8Wrapper, u32>,
+        tokens_tree: &'a Trie<VecU8Wrapper, u32>,
         stack_arena_capacity: usize,
     ) -> Sampler<'a> {
         let stacks = vec![vec![StackItem::Nonterminal(

@@ -1,3 +1,5 @@
+use crate::sampler::PossibleTokensResult;
+use crate::sampler::Sampler;
 use crate::trie::TerminalsTrie;
 use crate::trie::TrieNodeID;
 use crate::utils;
@@ -6,6 +8,7 @@ use crate::utils::VecU8Wrapper;
 use bit_set::BitSet;
 use bnf::Production;
 use bnf::{Grammar, Term};
+use itertools::Itertools;
 use memchr::memmem;
 use memchr::memmem::Finder;
 use qp_trie::Trie;
@@ -13,10 +16,9 @@ use regex::Regex;
 use rustc_hash::FxHashMap;
 use rustc_hash::FxHashSet;
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
-pub(crate) enum U8Term
-{
+pub(crate) enum U8Term {
     Terminal(Vec<u8>),
-    Nonterminal(String)
+    Nonterminal(String),
 }
 
 #[derive(Clone, Debug)]
@@ -25,7 +27,7 @@ pub struct SimplifiedGrammar {
     pub(crate) nonterminal_to_terminal_id: FxHashMap<String, NonterminalID>,
     pub(crate) terminals_trie: TerminalsTrie,
     pub(crate) nonterminal_to_token_ids: FxHashMap<NonterminalID, BitSet<u32>>,
-    pub(crate) nonterminal_to_excluded_token_ids: FxHashMap<NonterminalID, BitSet<u32>>
+    pub(crate) nonterminal_to_excluded_token_ids: FxHashMap<NonterminalID, BitSet<u32>>,
 }
 #[derive(Clone, Debug)]
 pub(crate) enum SimplifiedExpressions {
@@ -33,7 +35,12 @@ pub(crate) enum SimplifiedExpressions {
     Terminals(TrieNodeID),
 }
 impl SimplifiedGrammar {
-    pub fn new(input: &str, tokens_tree: &Trie<VecU8Wrapper, u32>) -> Self {
+    pub fn new(
+        input: &str,
+        tokens_tree: &Trie<VecU8Wrapper, u32>,
+        token_ids_to_tokens: &FxHashMap<u32, String>,
+        stack_arena_capacity: usize,
+    ) -> Self {
         let except_present = utils::EXCEPTS_REGEX.is_match(input);
         let any_present = input.contains(&format!("<{}>", utils::ANY_NONTERMINAL_NAME));
         let mut grammar: Grammar = input.parse().unwrap();
@@ -45,15 +52,19 @@ impl SimplifiedGrammar {
         let mut nonterminal_to_token_ids: FxHashMap<NonterminalID, BitSet<u32>> =
             FxHashMap::default();
         let mut nonterminal_to_excluded_token_ids: FxHashMap<NonterminalID, BitSet<u32>> =
-        FxHashMap::default();
+            FxHashMap::default();
         let mut excepts: FxHashSet<String> = FxHashSet::default();
         if except_present {
-            for i in utils::EXCEPTS_REGEX.find_iter(input) {
+            for i in utils::EXCEPT_LITERAL_REGEX.find_iter(input) {
                 let temp = i.as_str().to_string();
                 let mut any_prod = Production::new();
                 excepts.insert(temp.clone());
                 any_prod.lhs = Term::Nonterminal(temp);
                 grammar.add_production(any_prod);
+            }
+            for i in utils::EXCEPT_NONTERMINAL_REGEX.find_iter(input) {
+                let temp = i.as_str().to_string();
+                excepts.insert(temp);
             }
         }
         let mut simplified_grammar: FxHashMap<String, FxHashSet<Vec<U8Term>>> =
@@ -96,62 +107,61 @@ impl SimplifiedGrammar {
             .map(|(i, (key, _))| (key.clone(), NonterminalID(i)))
             .collect();
         let mut terminals_arena = TerminalsTrie::new();
-        let mut add_tokens =
+        let add_tokens =
             |simplified_grammar: &mut FxHashMap<String, FxHashSet<Vec<U8Term>>>,
              terminals_arena: &mut TerminalsTrie,
+             nonterminal_to_terminal_id: &FxHashMap<String, NonterminalID>,
+             nonterminal_to_token_ids: &mut FxHashMap<NonterminalID, BitSet>,
+             nonterminal_to_excluded_token_ids: &mut FxHashMap<NonterminalID, BitSet>,
              nonterminal: &str,
-             excepted_literal: Option<&str>| {
+             excepted_literal: Option<&Vec<&str>>| {
                 simplified_grammar.remove(nonterminal);
-                let finder = excepted_literal.map(|x| memmem::Finder::new(x.as_bytes()));
-                let predicate = |x: &&VecU8Wrapper, finder: &Finder| {
-                    excepted_literal.is_some_and(|excepted_literal| {
-                        let excepted_bytes = excepted_literal.as_bytes();
-                        return x.0 != excepted_bytes
-                            && (x.0.ends_with(excepted_bytes)
-                                || finder.find(x.0.as_slice()).is_none());
-                    })
+                let predicate = |haystack: &&VecU8Wrapper| {
+                    excepted_literal.is_none()
+                        || excepted_literal.is_some_and(|x| {
+                            x.iter().all(|x| {
+                                let excepted_bytes = x.as_bytes();
+                                return haystack.0 != excepted_bytes
+                                    || memmem::find(haystack.0.as_slice(), excepted_bytes)
+                                        .is_none();
+                            })
+                        })
                 };
-                match finder {
-                    Some(finder) => {
+                match excepted_literal {
+                    Some(_) => {
                         simplified_grammar.insert(
                             nonterminal.to_string(),
                             tokens_tree
                                 .keys()
-                                .filter(|x| predicate(x, &finder))
+                                .filter(|x| predicate(x))
                                 .map(|k| vec![U8Term::Terminal(k.0.clone())])
                                 .collect(),
                         );
-                        for (key, _) in tokens_tree.iter().filter(|(x, _)| predicate(x, &finder)) {
+                        for (key, _) in tokens_tree.iter().filter(|(x, _)| predicate(x)) {
                             terminals_arena
                                 .add(key.0.as_slice(), nonterminal_to_terminal_id[nonterminal])
                         }
                         let mut bit_set = BitSet::new();
-                        bit_set.extend(tokens_tree.iter().filter_map(|(x, token_id)| {
-                            excepted_literal.and_then(|excepted_literal| {
-                                let excepted_bytes = excepted_literal.as_bytes();
-                                if x.0 != excepted_bytes && finder.find(x.0.as_slice()).is_none() {
-                                    Some((*token_id) as usize)
-                                }
-                                else {
-
-                                    None
-                                }
-                            })
+                        bit_set.extend(tokens_tree.iter().filter_map(|(k, token_id)| {
+                            if predicate(&k) {
+                                Some(*(token_id) as usize)
+                            } else {
+                                None
+                            }
                         }));
                         nonterminal_to_token_ids
                             .insert(nonterminal_to_terminal_id[nonterminal], bit_set);
                         let mut bit_set = BitSet::new();
-                        bit_set.extend(tokens_tree.iter().filter_map(|(k,token_id)|{
-                            if !predicate(&k, &finder)
-                            {
+                        bit_set.extend(tokens_tree.iter().filter_map(|(k, token_id)| {
+                            if !predicate(&k) {
                                 println!("{:?}", String::from_utf8(k.0.clone()));
                                 Some(*(token_id) as usize)
-                            }
-                            else {
+                            } else {
                                 None
                             }
                         }));
-                        nonterminal_to_excluded_token_ids.insert(nonterminal_to_terminal_id[nonterminal], bit_set);
+                        nonterminal_to_excluded_token_ids
+                            .insert(nonterminal_to_terminal_id[nonterminal], bit_set);
                     }
                     None => {
                         simplified_grammar.insert(
@@ -176,32 +186,33 @@ impl SimplifiedGrammar {
             add_tokens(
                 &mut simplified_grammar,
                 &mut terminals_arena,
+                &nonterminal_to_terminal_id,
+                &mut nonterminal_to_token_ids,
+                &mut nonterminal_to_excluded_token_ids,
                 utils::ANY_NONTERMINAL_NAME,
                 None,
             );
         }
+        fn process_valid_excepts<F: FnOnce(&str)>(regex: &Regex, nonterminal: &str, process: F) {
+            let extracted = utils::extract_excepted(regex, nonterminal);
+            if let Some(extracted) = extracted {
+                if extracted.is_empty() {
+                    panic!("{nonterminal} is invalid except!() nonterminal because the brackets contain nothing.");
+                }
+                process(extracted);
+            }
+        }
         if except_present {
             for nonterminal in excepts.iter() {
-                fn process_valid_result<F: FnOnce(&str)>(
-                    regex: &Regex,
-                    nonterminal: &str,
-                    process: F,
-                ) {
-                    let extracted = utils::extract_excepted(regex, nonterminal);
-                    if let Some(extracted) = extracted {
-                        if extracted.is_empty() {
-                            panic!("{nonterminal} is invalid except!() nonterminal because the brackets contain nothing.");
-                        }
-                        process(extracted);
-                    }
-                }
-                process_valid_result(&utils::EXCEPT_LITERAL_REGEX, nonterminal, |extracted| {
-                    println!("extracted: {}", extracted);
+                process_valid_excepts(&utils::EXCEPT_LITERAL_REGEX, nonterminal, |extracted| {
                     add_tokens(
                         &mut simplified_grammar,
                         &mut terminals_arena,
+                        &nonterminal_to_terminal_id,
+                        &mut nonterminal_to_token_ids,
+                        &mut nonterminal_to_excluded_token_ids,
                         nonterminal,
-                        Some(extracted),
+                        Some(&vec![extracted]),
                     );
                     terminals_arena.except_terminal(
                         extracted.as_bytes(),
@@ -210,9 +221,27 @@ impl SimplifiedGrammar {
                 });
             }
         }
+        fn convert_U8Terms_to_SimplifiedExpressions(
+            k: &str,
+            v: FxHashSet<Vec<U8Term>>,
+            terminals_arena: &mut TerminalsTrie,
+            nonterminal_to_terminal_id: &FxHashMap<String, NonterminalID>,
+        ) -> (String, SimplifiedExpressions) {
+            for i in v.into_iter() {
+                let value = match i.last().unwrap() {
+                    U8Term::Terminal(value) => value,
+                    _ => panic!("There should only be terminals."),
+                };
+                terminals_arena.add(value, nonterminal_to_terminal_id[k]);
+            }
+            let v = SimplifiedExpressions::Terminals(
+                terminals_arena.roots[&nonterminal_to_terminal_id[k]],
+            );
+            (k.to_string(), v)
+        }
         let mut new_simplified_grammar: FxHashMap<String, SimplifiedExpressions> =
             simplified_grammar
-                .into_iter()
+                .iter()
                 .map(|(k, v)| {
                     if v.iter().all(|terms| {
                         terms.len() == 1
@@ -221,19 +250,14 @@ impl SimplifiedGrammar {
                                 U8Term::Nonterminal(_) => false,
                             }
                     }) {
-                        for i in v.into_iter() {
-                            let value = match i.last().unwrap() {
-                                U8Term::Terminal(value) => value,
-                                _ => panic!("There should only be terminals."),
-                            };
-                            terminals_arena.add(value, nonterminal_to_terminal_id[&k]);
-                        }
-                        let v = SimplifiedExpressions::Terminals(
-                            terminals_arena.roots[&nonterminal_to_terminal_id[&k]],
-                        );
-                        (k, v)
+                        convert_U8Terms_to_SimplifiedExpressions(
+                            k,
+                            v.clone(),
+                            &mut terminals_arena,
+                            &nonterminal_to_terminal_id,
+                        )
                     } else {
-                        (k, SimplifiedExpressions::Expressions(v))
+                        (k.clone(), SimplifiedExpressions::Expressions(v.clone()))
                     }
                 })
                 .collect();
@@ -247,12 +271,16 @@ impl SimplifiedGrammar {
         }
         if except_present {
             for nonterminal in excepts.iter() {
-                new_simplified_grammar.insert(
-                    nonterminal.to_string(),
-                    SimplifiedExpressions::Terminals(
-                        terminals_arena.roots[&nonterminal_to_terminal_id[nonterminal]],
-                    ),
-                );
+                if utils::EXCEPT_LITERAL_REGEX.is_match(nonterminal)
+                {
+                    new_simplified_grammar.insert(
+                        nonterminal.to_string(),
+                        SimplifiedExpressions::Terminals(
+                            terminals_arena.roots[&nonterminal_to_terminal_id[nonterminal]],
+                        ),
+                    );
+                }
+
             }
         }
         let nonterminal_id_to_expression: FxHashMap<NonterminalID, SimplifiedExpressions> =
@@ -260,12 +288,69 @@ impl SimplifiedGrammar {
                 .iter()
                 .map(|(key, value)| (nonterminal_to_terminal_id[key], value.clone()))
                 .collect();
-        SimplifiedGrammar {
+        let mut grammar = SimplifiedGrammar {
             nonterminal_to_terminal_id,
             nonterminal_id_to_expression,
             terminals_trie: terminals_arena,
             nonterminal_to_token_ids,
-            nonterminal_to_excluded_token_ids
+            nonterminal_to_excluded_token_ids,
+        };
+        if except_present {
+            for nonterminal in excepts.iter() {
+                process_valid_excepts(&utils::EXCEPT_NONTERMINAL_REGEX, nonterminal, |extracted| {
+                    assert!(
+                        grammar.nonterminal_to_terminal_id.contains_key(extracted),
+                        "{extracted} is not a valid nonterminal."
+                    );
+                    println!("{nonterminal}");
+                    grammar.nonterminal_to_terminal_id.insert(
+                        nonterminal.to_string(),
+                        NonterminalID(grammar.nonterminal_id_to_expression.len()),
+                    );
+                    let mut temp_machine =
+                        Sampler::new(&grammar, extracted, tokens_tree, stack_arena_capacity);
+                    let mut simplified_grammar: FxHashMap<String, FxHashSet<Vec<U8Term>>> =
+                        FxHashMap::default();
+                    match temp_machine.all_possible_next_tokens(None) {
+                        PossibleTokensResult::Continue(tokens) => {
+                            let iter =
+                                utils::get_tokens_from_token_ids(tokens, token_ids_to_tokens)
+                                    .map(|x| x.to_string())
+                                    .collect_vec();
+                            add_tokens(
+                                &mut simplified_grammar,
+                                &mut grammar.terminals_trie,
+                                &grammar.nonterminal_to_terminal_id,
+                                &mut grammar.nonterminal_to_token_ids,
+                                &mut grammar.nonterminal_to_excluded_token_ids,
+                                nonterminal,
+                                Some(&(iter.iter().map(|x| x.as_str()).collect_vec())),
+                            );
+                            for token in iter {
+                                grammar.terminals_trie.except_terminal(
+                                    token.as_bytes(),
+                                    grammar.nonterminal_to_terminal_id[nonterminal],
+                                );
+                            }
+                            let (new_k, new_v) = {
+                                let (new_k, new_v) = convert_U8Terms_to_SimplifiedExpressions(
+                                    nonterminal,
+                                    simplified_grammar[nonterminal].clone(),
+                                    &mut grammar.terminals_trie,
+                                    &grammar.nonterminal_to_terminal_id,
+                                );
+                                (grammar.nonterminal_to_terminal_id[&new_k], new_v)
+                            };
+                            grammar
+                                .nonterminal_id_to_expression
+                                .insert(new_k, new_v);
+                            simplified_grammar.clear();
+                        }
+                        _ => panic!("{extracted} does not produce valid terminals."),
+                    }
+                });
+            }
         }
+        grammar
     }
 }

@@ -1,3 +1,4 @@
+use bit_set::BitSet;
 use qp_trie::Trie;
 use regex::Regex;
 use rustc_hash::FxHashMap;
@@ -13,11 +14,11 @@ lazy_static! {
 }
 lazy_static! {
     pub static ref EXCEPT_NONTERMINAL_REGEX: Regex =
-        Regex::new("except!\\((<.+?>)\\)").unwrap();
+        Regex::new("except!\\(\\[(.+?)\\]\\)").unwrap();
 }
 lazy_static! {
     pub static ref EXCEPTS_REGEX: Regex =
-        Regex::new("except!\\(['\"](.+?)['\"]\\)|except!\\((<.+?>)\\)").unwrap();
+        Regex::new("except!\\(['\"](.+?)['\"]\\)|except!\\(\\[(.+?)\\]\\)").unwrap();
 }
 pub fn extract_excepted<'a>(regex: &Regex, except_nonterminal: &'a str) -> Option<&'a str> {
     Some(regex
@@ -83,6 +84,11 @@ impl<'a> qp_trie::Break for SliceU8Wrapper<'a> {
         &self.0[..loc]
     }
 }
+pub fn get_tokens_from_token_ids<'a>(token_ids: &'a BitSet, token_id_to_token: &'a FxHashMap<u32, String>)->impl Iterator<Item = &'a str>
+{
+    token_ids.iter().map(|x| token_id_to_token[&(x as u32)].as_str())
+}
+
 pub fn read_world_vocab(file_name: &str) -> (Trie<VecU8Wrapper, u32>, FxHashMap<u32, String>) {
     let file = File::open(file_name).unwrap();
     let reader = BufReader::new(file);

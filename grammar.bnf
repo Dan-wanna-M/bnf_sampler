@@ -1,6 +1,7 @@
-<dna> ::= <sequence>'a'
-<sequence> ::= <except!('a')>|<except!('a')><sequence>
-<digit> ::= '1'|'2'|'3'|'4'
+<dna> ::= <sequence><digits>
+<sequence> ::= <except!([digits])>|<except!([digits])><sequence>
+<digits> ::= <digit>|<digit><digits>
+<digit> ::= 'b'|'boy'|'bool'
 <escape> ::= '\x00'|'\x01'
 <base> ::='a'|'b'|'c'|'d'|'e'|'f'|'g'|'h'|'i'|'j'|'k'|'l'|'m'|'n'|'o'|'p'|'q'|'r'|'s'|'t'|'u'|'v'|'w'|'x'|'y'|'z'|' '
 <char> ::='我是野兽'|'我，黄鹤'|'一'|'个'|'是'|'我'
