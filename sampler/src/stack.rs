@@ -53,7 +53,7 @@ impl<'a, T: Copy> Index<RangeTo<usize>> for FixedBuffer<'a, T> {
 
     fn index(&self, index: RangeTo<usize>) -> &Self::Output {
         assert!(
-            index.end < self.top,
+            index.end <= self.top,
             "the length of the stack is {}, but the range is {:?}",
             self.top,
             index
@@ -117,7 +117,6 @@ impl<'a, T: Copy> FixedBuffer<'a, T> {
         temp
     }
     */
-
     pub fn len(&self) -> usize {
         self.top
     }

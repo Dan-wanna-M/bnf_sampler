@@ -10,8 +10,10 @@ use crate::utils::NonterminalID;
 use crate::utils::SliceU8Wrapper;
 use crate::utils::VecU8Wrapper;
 use bit_set::BitSet;
+use itertools::Itertools;
 use qp_trie::Trie;
 use rustc_hash::FxHashMap;
+use rustc_hash::FxHashSet;
 use std::ptr::NonNull;
 use std::time::Instant;
 use std::vec;
@@ -34,6 +36,19 @@ pub struct Sampler<'a> {
     stacks_to_token_ids: FxHashMap<Vec<Vec<StackItem<'a>>>, BitSet<u32>>,
     token_ids: BitSet<u32>,
 }
+#[derive(Debug, PartialEq, Clone, Copy)]
+enum AcceptTokensResult {
+    Continue,
+    End,
+    Failed,
+}
+#[derive(Debug, PartialEq, Clone)]
+pub enum PossibleTokensResult<'a> {
+    Continue(&'a BitSet<u32>),
+    End,
+    Failed,
+}
+
 #[derive(Debug)]
 enum BytesMatchResults<'a> {
     Failed(usize),
@@ -160,90 +175,105 @@ impl<'a> Sampler<'a> {
     pub fn all_possible_next_tokens(
         &mut self,
         previous_tokens: Option<&[u8]>,
-    ) -> Option<&BitSet<u32>> {
+    ) -> PossibleTokensResult {
         let now = Instant::now();
-        if !self.accept_tokens(previous_tokens) {
-            return None;
-        }
-        // println!("accepting tokens: {:?}", now.elapsed());
         self.token_ids.clear();
-        for stack in self.stacks.iter() {
-            if let StackItem::Terminals(node_id) =
-                stack.last().expect("The stack should not be empty.")
-            {
-                if let Some((k, _)) = self
-                    .grammar
-                    .terminals_trie
-                    .roots
-                    .iter()
-                    .find(|(_, v)| **v == *node_id)
-                {
-                    if self
-                        .grammar
-                        .nonterminal_to_terminal_id
-                        .get(utils::ANY_NONTERMINAL_NAME)
-                        .is_some_and(|x| *k == *x)
+        let mut excluded_token_ids: BitSet<u32> = BitSet::default();
+        match self.accept_tokens(previous_tokens) {
+            AcceptTokensResult::End => PossibleTokensResult::End,
+            AcceptTokensResult::Failed => PossibleTokensResult::Failed,
+            AcceptTokensResult::Continue => {
+                let mut cached_node_id = FxHashSet::default();
+                for stack in self.stacks.iter() {
+                    if let StackItem::Terminals(node_id) =
+                        stack.last().expect("The stack should not be empty.")
                     {
-                        self.token_ids
-                            .extend(self.tokens_tree.iter().map(|(_, v)| (*v) as usize));
-                        break;
+                        if cached_node_id.contains(node_id) {
+                            continue;
+                        }
+                        if let Some((k, _)) = self
+                            .grammar
+                            .terminals_trie
+                            .roots
+                            .iter()
+                            .find(|(_, v)| **v == *node_id)
+                        {
+                            if let Some(x) = self.grammar.nonterminal_to_token_ids.get(k) {
+                                self.token_ids.extend(x.iter());
+                                cached_node_id.insert(*node_id);
+                            }
+                            if let Some(x) = self.grammar.nonterminal_to_excluded_token_ids.get(k) {
+                                excluded_token_ids.extend(x.iter());
+                                cached_node_id.insert(*node_id);
+                            }
+                        }
                     }
                 }
+                PossibleTokensResult::Continue(
+                    self.stacks_to_token_ids
+                        .entry(self.stacks.clone())
+                        .or_insert_with(|| {
+                            for stack in self.stacks.iter() {
+                                // let now = Instant::now();
+                                let mut failed_prefixs: Trie<SliceU8Wrapper, ()> = Trie::new();
+                                let iter = BufferOrTreeIter::new(
+                                    &self.tokens_buffer,
+                                    &self.tokens_tree,
+                                    &self.grammar.terminals_trie,
+                                    *stack.last().unwrap(),
+                                );
+                                for (token, token_id) in iter {
+                                    if self.token_ids.contains(*token_id as usize)
+                                        || excluded_token_ids.contains(*token_id as usize)
+                                        || failed_prefixs.contains_key(
+                                            failed_prefixs
+                                                .longest_common_prefix(token.0.as_slice()),
+                                        )
+                                    {
+                                        continue;
+                                    }
+                                    // println!("{:?}", String::from_utf8(token.0.clone()));
+                                    let arena = unsafe {
+                                        NonNull::new_unchecked(
+                                            &mut self.stack_arena
+                                                as *mut BufferArena<StackItem<'a>>,
+                                        )
+                                    };
+                                    let mut temp_stack =
+                                        self.stack_arena.allocate_a_stack(stack.len());
+                                    temp_stack.copy_from_slice(stack.as_slice());
+                                    let result = Self::find_stacks_matching_bytes(
+                                        arena,
+                                        &mut temp_stack,
+                                        self.grammar,
+                                        Some(token.0.as_slice()),
+                                        false,
+                                        &mut |_, _| {},
+                                        &mut |bytes, index| {
+                                            if index < usize::MAX {
+                                                failed_prefixs.insert(
+                                                    SliceU8Wrapper(&bytes[..index + 1]),
+                                                    (),
+                                                );
+                                            }
+                                        },
+                                    );
+                                    if result {
+                                        self.token_ids.insert(*token_id as usize);
+                                    }
+                                    self.stack_arena.clear();
+                                }
+                                // println!("stack: {:?}, {:?}", stack, now.elapsed());
+                            }
+                            self.token_ids.clone()
+                        }),
+                )
             }
         }
-        Some(
-            self.stacks_to_token_ids
-                .entry(self.stacks.clone())
-                .or_insert_with(|| {
-                    for stack in self.stacks.iter() {
-                        // let now = Instant::now();
-                        let mut failed_prefixs: Trie<SliceU8Wrapper, ()> = Trie::new();
-                        let iter = BufferOrTreeIter::new(
-                            &self.tokens_buffer,
-                            &self.tokens_tree,
-                            &self.grammar.terminals_trie,
-                            *stack.last().unwrap(),
-                        );
-                        for (token, token_id) in iter {
-                            if self.token_ids.contains(*token_id as usize)
-                                || failed_prefixs.contains_key(
-                                    failed_prefixs.longest_common_prefix(token.0.as_slice()),
-                                )
-                            {
-                                continue;
-                            }
-                            // println!("{:?}", String::from_utf8(token.0.clone()).unwrap());
-                            let arena = unsafe {
-                                NonNull::new_unchecked(
-                                    &mut self.stack_arena as *mut BufferArena<StackItem<'a>>,
-                                )
-                            };
-                            let mut temp_stack = self.stack_arena.allocate_a_stack(stack.len());
-                            temp_stack.copy_from_slice(stack.as_slice());
-                            let result = Self::find_stacks_matching_bytes(
-                                arena,
-                                &mut temp_stack,
-                                self.grammar,
-                                Some(token.0.as_slice()),
-                                false,
-                                &mut |_, _| {},
-                                &mut |bytes, index| {
-                                    failed_prefixs.insert(SliceU8Wrapper(&bytes[..index + 1]), ());
-                                },
-                            );
-                            if result {
-                                self.token_ids.insert(*token_id as usize);
-                            }
-                            self.stack_arena.clear();
-                        }
-                        // println!("stack: {:?}, {:?}", stack, now.elapsed());
-                    }
-                    self.token_ids.clone()
-                }),
-        )
+        // println!("accepting tokens: {:?}", now.elapsed());
     }
     #[must_use]
-    fn accept_tokens(&mut self, bytes: Option<&[u8]>) -> bool {
+    fn accept_tokens(&mut self, bytes: Option<&[u8]>) -> AcceptTokensResult {
         let mut find_stacks_matching_bytes = |bytes| {
             let len = self.stacks.len();
             let mut accepted = false;
@@ -275,7 +305,7 @@ impl<'a> Sampler<'a> {
                         );
                     }
                     None => {
-                        continue;
+                        return AcceptTokensResult::End;
                     }
                 };
                 self.stack_arena.clear();
@@ -283,23 +313,27 @@ impl<'a> Sampler<'a> {
             for i in (0..len).rev() {
                 self.stacks.swap_remove(i);
             }
-            accepted
+            if accepted {
+                AcceptTokensResult::Continue
+            } else {
+                AcceptTokensResult::Failed
+            }
         };
-        let mut result = true;
+        let mut result;
         if bytes.is_some() {
             result = find_stacks_matching_bytes(bytes);
-            if !result {
-                return false;
+            if result == AcceptTokensResult::Failed || result == AcceptTokensResult::End {
+                return result;
             }
         }
-        result | find_stacks_matching_bytes(None)
+        find_stacks_matching_bytes(None)
     }
-
     fn match_stack_to_bytes<'b>(
         stack: &FixedBuffer<StackItem<'a>>,
         bytes: Option<&'b [u8]>,
         trie: &TerminalsTrie,
     ) -> BytesMatchResults<'a> {
+        #[allow(clippy::too_many_arguments)]
         fn _match_stack_to_bytes<'a>(
             stack: &FixedBuffer<StackItem<'a>>,
             bytes: &[u8],
@@ -314,13 +348,16 @@ impl<'a> Sampler<'a> {
             }
             match stack[stack_offset] {
                 StackItem::Nonterminal(_) => {
-                    result.push(BytesMatchResult {
-                        remaining_bytes_start: bytes_index as i32,
-                        stack_offset: stack_offset as u32,
-                        modified_item_at_offset: None,
-                    });
+                    if bytes_index != 0 {
+                        result.push(BytesMatchResult {
+                            remaining_bytes_start: bytes_index as i32,
+                            stack_offset: stack_offset as u32,
+                            modified_item_at_offset: None,
+                        });
+                    }
                 }
                 StackItem::Terminal(terminal) => {
+                    // println!("terminal: {:?}", terminal);
                     for i in 0..terminal.len() {
                         if bytes.len() == i + bytes_index {
                             result.push(BytesMatchResult {
@@ -362,6 +399,25 @@ impl<'a> Sampler<'a> {
                         match current_node.children.get(&bytes[i]) {
                             Some(new_node_id) => {
                                 let new_node = trie.get(*new_node_id);
+                                if let Some(negative_index) = new_node.negative_bytes_index {
+                                    let index = i + 1 - negative_index as usize;
+                                    if stack_offset > 0 {
+                                        if i != bytes.len() - 1 {
+                                            return;
+                                        }
+                                        // println!("{index}, {stack_offset}, {:?}", &bytes[index..]);
+                                        _match_stack_to_bytes(
+                                            stack,
+                                            bytes,
+                                            index,
+                                            trie,
+                                            stack_offset - 1,
+                                            shortest_failed_index,
+                                            result,
+                                        );
+                                    }
+                                    return;
+                                }
                                 if new_node.value.is_some()
                                     && stack_offset > 0
                                     && i < bytes.len() - 1
@@ -458,7 +514,9 @@ impl<'a> Sampler<'a> {
                             temp_stack.copy_from_raw_slice(stack);
                             for term in expression.iter().rev() {
                                 temp_stack.push(match term {
-                                    U8Term::Terminal(value) => StackItem::Terminal(value.as_slice()),
+                                    U8Term::Terminal(value) => {
+                                        StackItem::Terminal(value.as_slice())
+                                    }
                                     U8Term::Nonterminal(value) => StackItem::Nonterminal(
                                         grammar.nonterminal_to_terminal_id[value],
                                     ),

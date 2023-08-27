@@ -1,4 +1,4 @@
-use sampler::sampler::Sampler;
+use sampler::sampler::{PossibleTokensResult, Sampler};
 use sampler::{simplified_grammar, utils};
 use std::time::Instant;
 use std::{fs, vec};
@@ -9,24 +9,21 @@ fn main() {
     let grammar = simplified_grammar::SimplifiedGrammar::new(&input, &tree);
     let mut machine = Sampler::new(&grammar, "dna", tree, 1024 * 1000);
     // println!("{:?}", machine.stacks);
-    let result: Vec<&str> = machine
-        .all_possible_next_tokens(None)
-        .unwrap()
-        .iter()
-        .map(|x| map[&(x as u32)].as_str())
-        .collect();
-    // println!("{:?}", result);
+    if let PossibleTokensResult::Continue(result) = machine.all_possible_next_tokens(None) {
+        let result: Vec<&str> = result.iter().map(|x| map[&(x as u32)].as_str()).collect();
+        // println!("{:?}", result);
+    }
+
     let mut times: Vec<f64> = vec![];
+    // machine.all_possible_next_tokens(Some("我是土豆".as_bytes()));
     // println!("{:?}", machine.stacks);
     let now = Instant::now();
-    /*
-    machine.all_possible_next_tokens(Some("statistics".as_bytes()));
-    machine.all_possible_next_tokens(Some("takeitboy".as_bytes()));
-    machine.all_possible_next_tokens(Some("vanyousee".as_bytes()));
-    machine.all_possible_next_tokens(Some("asswecan".as_bytes()));
-    */
+    
+    machine.all_possible_next_tokens(Some("boynextdoor".as_bytes()));
+    machine.all_possible_next_tokens(Some("Iloveyou".as_bytes()));
+    machine.all_possible_next_tokens(Some("venyousee".as_bytes()));
     let end = now.elapsed();
-    println!("Time used: {:?}", end / 1);
+    println!("Time used: {:?}", end / 3);
     // return;
     loop {
         // println!("{:?}",grammar.nonterminal_to_terminal_id);
@@ -38,22 +35,26 @@ fn main() {
         let input = utils::fix_utf8_escape(input.trim());
         println!("{:?}", input);
         let now = Instant::now();
-        let result: Vec<&str> = match machine.all_possible_next_tokens(Some(&input)) {
-            Some(result) => result.iter().map(|x| map[&(x as u32)].as_str()).collect(),
-            None => {
+        let result = machine.all_possible_next_tokens(Some(&input));
+        // println!("{:?}", machine);
+        let end = now.elapsed();
+        times.push(end.as_secs_f64());
+        println!("Time used: {:?}", end);
+        let result: Vec<&str> = match result {
+            PossibleTokensResult::Continue(result) => {
+                result.iter().map(|x| map[&(x as u32)].as_str()).collect()
+            }
+            PossibleTokensResult::Failed => {
                 println!("Invalid input.");
                 break;
             }
+            PossibleTokensResult::End => {
+                println!("One termination path is reached.");
+                break;
+            }
         };
-        // println!("{:?}", machine);
-        let end = now.elapsed();
-        println!("{:?}", machine.stacks);
-        times.push(end.as_secs_f64());
         // println!("{:?}", result);
-        println!("Time used: {:?}", end);
-        if result.is_empty() {
-            break;
-        }
+        println!("{:?}", machine.stacks.clone());
     }
     println!("{}", times.iter().sum::<f64>() / times.len() as f64);
 }

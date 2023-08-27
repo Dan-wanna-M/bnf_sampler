@@ -1,5 +1,5 @@
-<dna> ::= '我是土豆'<sequence>
-<sequence> ::= <escape>|<escape><sequence>
+<dna> ::= <sequence>'a'
+<sequence> ::= <except!('a')>|<except!('a')><sequence>
 <digit> ::= '1'|'2'|'3'|'4'
 <escape> ::= '\x00'|'\x01'
 <base> ::='a'|'b'|'c'|'d'|'e'|'f'|'g'|'h'|'i'|'j'|'k'|'l'|'m'|'n'|'o'|'p'|'q'|'r'|'s'|'t'|'u'|'v'|'w'|'x'|'y'|'z'|' '
