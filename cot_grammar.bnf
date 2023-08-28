@@ -1,0 +1,6 @@
+<start> ::= '*('<emotion>'*)'<dialogue>'*<'<action>'*>'
+<emotion> ::= <except!([emotion_bracket])>|<except!([emotion_bracket])><emotion>
+<emotion_bracket> ::= '*('|'*)'
+<dialogue> ::= <except!('*<')>|<except!('*<')><dialogue>
+<action> ::= <except!([action_bracket])>|<except!([action_bracket])><dialogue>
+<action_bracket> ::= '*<'|'*>'

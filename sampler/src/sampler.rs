@@ -177,7 +177,6 @@ impl<'a> Sampler<'a> {
     ) -> PossibleTokensResult {
         let now = Instant::now();
         self.token_ids.clear();
-        let mut excluded_token_ids: BitSet<u32> = BitSet::default();
         match self.accept_tokens(previous_tokens) {
             AcceptTokensResult::End => PossibleTokensResult::End,
             AcceptTokensResult::Failed => PossibleTokensResult::Failed,
@@ -201,10 +200,6 @@ impl<'a> Sampler<'a> {
                                 self.token_ids.extend(x.iter());
                                 cached_node_id.insert(*node_id);
                             }
-                            if let Some(x) = self.grammar.nonterminal_to_excluded_token_ids.get(k) {
-                                excluded_token_ids.extend(x.iter());
-                                cached_node_id.insert(*node_id);
-                            }
                         }
                     }
                 }
@@ -217,21 +212,20 @@ impl<'a> Sampler<'a> {
                                 let mut failed_prefixs: Trie<SliceU8Wrapper, ()> = Trie::new();
                                 let iter = BufferOrTreeIter::new(
                                     &self.tokens_buffer,
-                                    &self.tokens_tree,
+                                    self.tokens_tree,
                                     &self.grammar.terminals_trie,
                                     *stack.last().unwrap(),
                                 );
                                 for (token, token_id) in iter {
                                     if self.token_ids.contains(*token_id as usize)
-                                        || excluded_token_ids.contains(*token_id as usize)
                                         || failed_prefixs.contains_key(
                                             failed_prefixs
                                                 .longest_common_prefix(token.0.as_slice()),
                                         )
                                     {
+                                        // println!("excepted: {:?}", String::from_utf8(token.0.clone()));
                                         continue;
                                     }
-                                    // println!("{:?}", String::from_utf8(token.0.clone()));
                                     let arena = unsafe {
                                         NonNull::new_unchecked(
                                             &mut self.stack_arena
@@ -331,6 +325,7 @@ impl<'a> Sampler<'a> {
         stack: &FixedBuffer<StackItem<'a>>,
         bytes: Option<&'b [u8]>,
         trie: &TerminalsTrie,
+        find_all:bool
     ) -> BytesMatchResults<'a> {
         #[allow(clippy::too_many_arguments)]
         fn _match_stack_to_bytes<'a>(
@@ -339,10 +334,12 @@ impl<'a> Sampler<'a> {
             bytes_index: usize,
             trie: &TerminalsTrie,
             stack_offset: usize,
+            find_all:bool,
+            found:&mut bool,
             shortest_failed_index: &mut usize,
             result: &mut Vec<BytesMatchResult<'a>>,
         ) {
-            if bytes.is_empty() {
+            if bytes.is_empty() ||(!find_all&&*found){
                 return;
             }
             match stack[stack_offset] {
@@ -359,6 +356,7 @@ impl<'a> Sampler<'a> {
                     // println!("terminal: {:?}", terminal);
                     for i in 0..terminal.len() {
                         if bytes.len() == i + bytes_index {
+                            *found=true;
                             result.push(BytesMatchResult {
                                 remaining_bytes_start: INVALID_INDEX,
                                 stack_offset: stack_offset as u32,
@@ -373,6 +371,7 @@ impl<'a> Sampler<'a> {
                         }
                     }
                     if bytes.len() == terminal.len() {
+                        *found=true;
                         result.push(BytesMatchResult {
                             remaining_bytes_start: INVALID_INDEX,
                             stack_offset: stack_offset as u32,
@@ -387,6 +386,8 @@ impl<'a> Sampler<'a> {
                             terminal.len() + bytes_index,
                             trie,
                             stack_offset - 1,
+                            find_all,
+                            found,
                             shortest_failed_index,
                             result,
                         )
@@ -411,6 +412,8 @@ impl<'a> Sampler<'a> {
                                             index,
                                             trie,
                                             stack_offset - 1,
+                                            find_all,
+                                            found,
                                             shortest_failed_index,
                                             result,
                                         );
@@ -427,6 +430,8 @@ impl<'a> Sampler<'a> {
                                         i + 1,
                                         trie,
                                         stack_offset - 1,
+                                        find_all,
+                                        found,
                                         shortest_failed_index,
                                         result,
                                     );
@@ -442,6 +447,7 @@ impl<'a> Sampler<'a> {
                     }
 
                     if !current_node.children.is_empty() {
+                        *found=true;
                         result.push(BytesMatchResult {
                             remaining_bytes_start: INVALID_INDEX,
                             stack_offset: stack_offset as u32,
@@ -449,6 +455,7 @@ impl<'a> Sampler<'a> {
                         });
                     }
                     if current_node.value.is_some() {
+                        *found=true;
                         result.push(BytesMatchResult {
                             remaining_bytes_start: INVALID_INDEX,
                             stack_offset: stack_offset as u32,
@@ -465,12 +472,15 @@ impl<'a> Sampler<'a> {
                 result.reserve(bytes.len());
                 let stack_offset = stack.len() - 1;
                 let mut shortest_failed_index = usize::MAX;
+                let mut found = false;
                 _match_stack_to_bytes(
                     stack,
                     bytes,
                     0,
                     trie,
                     stack_offset,
+                    find_all,
+                    &mut found,
                     &mut shortest_failed_index,
                     &mut result,
                 );
@@ -571,7 +581,7 @@ impl<'a> Sampler<'a> {
                 }
                 StackItem::Terminal(_) | StackItem::Terminals(_) => {
                     stack.push(value);
-                    match Self::match_stack_to_bytes(stack, bytes, trie) {
+                    match Self::match_stack_to_bytes(stack, bytes, trie, find_all) {
                         BytesMatchResults::Failed(index) => {
                             after_match_failed(bytes.unwrap(), index);
                             false

@@ -27,7 +27,6 @@ pub struct SimplifiedGrammar {
     pub(crate) nonterminal_to_terminal_id: FxHashMap<String, NonterminalID>,
     pub(crate) terminals_trie: TerminalsTrie,
     pub(crate) nonterminal_to_token_ids: FxHashMap<NonterminalID, BitSet<u32>>,
-    pub(crate) nonterminal_to_excluded_token_ids: FxHashMap<NonterminalID, BitSet<u32>>,
 }
 #[derive(Clone, Debug)]
 pub(crate) enum SimplifiedExpressions {
@@ -50,8 +49,6 @@ impl SimplifiedGrammar {
             grammar.add_production(any_prod);
         }
         let mut nonterminal_to_token_ids: FxHashMap<NonterminalID, BitSet<u32>> =
-            FxHashMap::default();
-        let mut nonterminal_to_excluded_token_ids: FxHashMap<NonterminalID, BitSet<u32>> =
             FxHashMap::default();
         let mut excepts: FxHashSet<String> = FxHashSet::default();
         if except_present {
@@ -112,7 +109,6 @@ impl SimplifiedGrammar {
              terminals_arena: &mut TerminalsTrie,
              nonterminal_to_terminal_id: &FxHashMap<String, NonterminalID>,
              nonterminal_to_token_ids: &mut FxHashMap<NonterminalID, BitSet>,
-             nonterminal_to_excluded_token_ids: &mut FxHashMap<NonterminalID, BitSet>,
              nonterminal: &str,
              excepted_literal: Option<&Vec<&str>>| {
                 simplified_grammar.remove(nonterminal);
@@ -122,7 +118,7 @@ impl SimplifiedGrammar {
                             x.iter().all(|x| {
                                 let excepted_bytes = x.as_bytes();
                                 return haystack.0 != excepted_bytes
-                                    || memmem::find(haystack.0.as_slice(), excepted_bytes)
+                                    && memmem::find(haystack.0.as_slice(), excepted_bytes)
                                         .is_none();
                             })
                         })
@@ -146,21 +142,12 @@ impl SimplifiedGrammar {
                             if predicate(&k) {
                                 Some(*(token_id) as usize)
                             } else {
+                                // println!("excepted: {:?}", String::from_utf8(k.0.clone()));
                                 None
                             }
                         }));
+                        
                         nonterminal_to_token_ids
-                            .insert(nonterminal_to_terminal_id[nonterminal], bit_set);
-                        let mut bit_set = BitSet::new();
-                        bit_set.extend(tokens_tree.iter().filter_map(|(k, token_id)| {
-                            if !predicate(&k) {
-                                println!("{:?}", String::from_utf8(k.0.clone()));
-                                Some(*(token_id) as usize)
-                            } else {
-                                None
-                            }
-                        }));
-                        nonterminal_to_excluded_token_ids
                             .insert(nonterminal_to_terminal_id[nonterminal], bit_set);
                     }
                     None => {
@@ -188,7 +175,6 @@ impl SimplifiedGrammar {
                 &mut terminals_arena,
                 &nonterminal_to_terminal_id,
                 &mut nonterminal_to_token_ids,
-                &mut nonterminal_to_excluded_token_ids,
                 utils::ANY_NONTERMINAL_NAME,
                 None,
             );
@@ -210,7 +196,6 @@ impl SimplifiedGrammar {
                         &mut terminals_arena,
                         &nonterminal_to_terminal_id,
                         &mut nonterminal_to_token_ids,
-                        &mut nonterminal_to_excluded_token_ids,
                         nonterminal,
                         Some(&vec![extracted]),
                     );
@@ -293,7 +278,6 @@ impl SimplifiedGrammar {
             nonterminal_id_to_expression,
             terminals_trie: terminals_arena,
             nonterminal_to_token_ids,
-            nonterminal_to_excluded_token_ids,
         };
         if except_present {
             for nonterminal in excepts.iter() {
@@ -302,7 +286,7 @@ impl SimplifiedGrammar {
                         grammar.nonterminal_to_terminal_id.contains_key(extracted),
                         "{extracted} is not a valid nonterminal."
                     );
-                    println!("{nonterminal}");
+                    // println!("{nonterminal}");
                     grammar.nonterminal_to_terminal_id.insert(
                         nonterminal.to_string(),
                         NonterminalID(grammar.nonterminal_id_to_expression.len()),
@@ -322,7 +306,6 @@ impl SimplifiedGrammar {
                                 &mut grammar.terminals_trie,
                                 &grammar.nonterminal_to_terminal_id,
                                 &mut grammar.nonterminal_to_token_ids,
-                                &mut grammar.nonterminal_to_excluded_token_ids,
                                 nonterminal,
                                 Some(&(iter.iter().map(|x| x.as_str()).collect_vec())),
                             );
