@@ -40,6 +40,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "bnf_sampler"
+version = "0.1.0"
+dependencies = [
+ "bit-set",
+ "bnf",
+ "itertools",
+ "lazy_static",
+ "memchr",
+ "mimalloc",
+ "nohash-hasher",
+ "qp-trie",
+ "regex",
+ "rustc-hash",
+]
+
+[[package]]
 name = "bumpalo"
 version = "3.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -64,7 +80,7 @@ checksum = "baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd"
 name = "console_playground"
 version = "0.1.0"
 dependencies = [
- "sampler",
+ "bnf_sampler",
 ]
 
 [[package]]
@@ -291,22 +307,6 @@ name = "ryu"
 version = "1.0.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1ad4cc8da4ef723ed60bced201181d83791ad433213d8c24efffda1eec85d741"
-
-[[package]]
-name = "sampler"
-version = "0.1.0"
-dependencies = [
- "bit-set",
- "bnf",
- "itertools",
- "lazy_static",
- "memchr",
- "mimalloc",
- "nohash-hasher",
- "qp-trie",
- "regex",
- "rustc-hash",
-]
 
 [[package]]
 name = "serde"

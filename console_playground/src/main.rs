@@ -1,5 +1,5 @@
-use sampler::sampler::{PossibleTokensResult, Sampler};
-use sampler::{simplified_grammar, utils};
+use bnf_sampler::sampler::{PossibleTokensResult, Sampler};
+use bnf_sampler::{simplified_grammar, utils};
 use std::time::Instant;
 use std::{fs, vec};
 fn main() {

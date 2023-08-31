@@ -1,7 +1,12 @@
 [package]
-name = "sampler"
+name = "bnf_sampler"
 version = "0.1.0"
 edition = "2021"
+license = "Apache-2.0"
+description = "A crate that uses recursive descent algorithm to ensure tokens produced by a large language model follow a Backus Naur Form schema."
+homepage = "https://bnf_sampler.rs/"
+repository = "https://github.com/Dan-wanna-M/bnf_sampler"
+readme = "../README.md"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [dependencies]

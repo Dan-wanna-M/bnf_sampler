@@ -2,7 +2,7 @@
 
 members = [
     "console_playground",
-    "sampler"
+    "bnf_sampler"
 ]
 [profile.release]
 debug = true
