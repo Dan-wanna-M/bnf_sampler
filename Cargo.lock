@@ -41,7 +41,7 @@ dependencies = [
 
 [[package]]
 name = "bnf_sampler"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "bit-set",
  "bnf",
