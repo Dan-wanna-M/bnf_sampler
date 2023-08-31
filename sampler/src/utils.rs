@@ -26,7 +26,6 @@ pub fn extract_excepted<'a>(regex: &Regex, except_nonterminal: &'a str) -> Optio
         .extract::<1>()
         .1[0])
 }
-
 #[derive(PartialEq, Clone, Debug, Copy, Eq)]
 pub struct NonterminalID(pub usize);
 

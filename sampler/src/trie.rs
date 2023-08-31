@@ -64,7 +64,7 @@ impl TerminalsTrie {
         &mut self.arena[node_id.id]
     }
 
-    pub fn add(&mut self, terminal: &[u8], nonterminal_id: NonterminalID) {
+    pub fn add(&mut self, terminal: &[u8], nonterminal_id: NonterminalID, can_stop: bool) {
         let mut current_node_id = *self.roots.entry(nonterminal_id).or_insert(Self::new_node(
             &mut self.arena,
             TrieNode {
@@ -72,6 +72,7 @@ impl TerminalsTrie {
                 negative_bytes_index: None,
                 value: None,
                 children: HashMap::default(),
+                can_stop
             },
         ));
         for i in terminal {
@@ -86,6 +87,7 @@ impl TerminalsTrie {
                             negative_bytes_index:None,
                             value: None,
                             children: HashMap::default(),
+                            can_stop
                         },
                     );
                     self.get_mut(current_node_id).append(*i, new_node_id);
@@ -143,6 +145,7 @@ pub struct TrieNodeID {
 #[derive(Clone, Debug)]
 pub(crate) struct TrieNode {
     pub index: u16,
+    pub can_stop:bool,
     pub negative_bytes_index: Option<u16>,
     pub value: Option<Box<[u8]>>,
     pub children: HashMap<u8, TrieNodeID, BuildNoHashHasher<u8>>,

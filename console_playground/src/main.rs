@@ -7,7 +7,7 @@ fn main() {
     let input = String::from_utf8(utils::fix_utf8_escape(&input)).unwrap();
     let (tree, map) = utils::read_world_vocab("vocab.txt");
     let grammar = simplified_grammar::SimplifiedGrammar::new(&input, &tree, &map, 1024);
-    let mut machine = Sampler::new(&grammar, "start", &tree, 1024 * 1024);
+    let mut machine = Sampler::new(&grammar, "start", &tree, 1024 * 1024, true);
     // println!("{:?}", machine.stacks);
     if let PossibleTokensResult::Continue(result) = machine.all_possible_next_tokens(None) {
         let result: Vec<&str> = result.iter().map(|x| map[&(x as u32)].as_str()).collect();
@@ -19,13 +19,13 @@ fn main() {
     // println!("{:?}", machine.stacks);
     let now = Instant::now();
     
-    machine.all_possible_next_tokens(Some("boynextdoor".as_bytes()));
-    machine.all_possible_next_tokens(Some("Iloveyou".as_bytes()));
-    machine.all_possible_next_tokens(Some("venyousee".as_bytes()));
+    machine.all_possible_next_tokens(Some("我热爱土豆".as_bytes()));
+    machine.all_possible_next_tokens(Some("我爱你".as_bytes()));
+    machine.all_possible_next_tokens(Some("你是一个一个".as_bytes()));
     
     let end = now.elapsed();
     println!("Time used: {:?}", end / 3);
-    return;
+    // return;
     loop {
         // println!("{:?}",grammar.nonterminal_to_terminal_id);
         println!("Input a token: ");

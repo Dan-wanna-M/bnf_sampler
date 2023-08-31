@@ -29,7 +29,7 @@ impl<T: Clone + Copy> BufferArena<T> {
         self.current_ptr = 0;
     }
 }
-#[derive(Debug)]
+#[derive(Debug, Hash, PartialEq, Eq)]
 pub(crate) struct FixedBuffer<'a, T: Copy> {
     buffer: &'a mut [Option<T>],
     top: usize,
