@@ -15,7 +15,7 @@ env:
   EXAMPLE_BINS: console_playground
 
   # Space separated paths to include in the archive.
-  RELEASE_ADDS: README.md LICENSE
+  RELEASE_ADDS: README.md LICENSE console_playground/assets
 
 jobs:
   build:
@@ -97,11 +97,13 @@ jobs:
       - name: Create tarball (MacOS)
         if: matrix.build == 'macos'
         run: |
+          echo (ls ./target/release/)
           for bin in $${{ env.EXAMPLE_BINS }}
           do
             mv ./target/release/${bin} ./dist/${bin}
           done
           mv ${{ env.RELEASE_ADDS }} ./dist
+          echo (ls ./dist)
           7z a -tzip ./${{ env.RELEASE_DIR }}/${{ env.RELEASE_BIN }}-${{ steps.get_version.outputs.VERSION }}-${{ env.MACOS_TARGET }}.zip ./dist
       - name: Upload Zip
         uses: actions/upload-artifact@v1
