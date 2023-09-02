@@ -21,7 +21,6 @@ jobs:
     name: Build artifacts
     runs-on: ${{ matrix.os }}
     permissions: write-all
-    environment: dev
     strategy:
       matrix:
         build: [linux, macos, windows]
@@ -42,6 +41,7 @@ jobs:
         with:
           toolchain: ${{ matrix.rust }}
           override: true
+          target: windows-latest
 
       - name: Query version number
         id: get_version
