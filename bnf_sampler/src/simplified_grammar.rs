@@ -92,7 +92,7 @@ impl SimplifiedGrammar {
                         }
                     }
                     if let Some(value) = temp_string {
-                        temp_vec.push(U8Term::Terminal(value.as_bytes().to_vec()));
+                        temp_vec.push(U8Term::Terminal(utils::fix_utf8_escape(&value)));
                     }
                     temp_vec
                 }));
@@ -108,15 +108,14 @@ impl SimplifiedGrammar {
                           nonterminal_to_terminal_id: &FxHashMap<String, NonterminalID>,
                           nonterminal_to_token_ids: &mut FxHashMap<NonterminalID, BitSet>,
                           nonterminal: &str,
-                          excepted_literal: Option<&Vec<&str>>| {
+                          excepted_literal: Option<&Vec<&[u8]>>| {
             simplified_grammar.remove(nonterminal);
             let predicate = |haystack: &&VecU8Wrapper| {
                 excepted_literal.is_none()
                     || excepted_literal.is_some_and(|x| {
                         x.iter().all(|x| {
-                            let excepted_bytes = x.as_bytes();
-                            return haystack.0 != excepted_bytes
-                                && memmem::find(haystack.0.as_slice(), excepted_bytes).is_none();
+                            return haystack.0 != *x
+                                && memmem::find(haystack.0.as_slice(), x).is_none();
                         })
                     })
             };
@@ -193,16 +192,18 @@ impl SimplifiedGrammar {
         if except_present {
             for nonterminal in excepts.iter() {
                 process_valid_excepts(&utils::EXCEPT_LITERAL_REGEX, nonterminal, |extracted| {
+                    let bytes = utils::fix_utf8_escape(extracted);
+                    println!("{:?}",bytes);
                     add_tokens(
                         &mut simplified_grammar,
                         &mut terminals_arena,
                         &nonterminal_to_terminal_id,
                         &mut nonterminal_to_token_ids,
                         nonterminal,
-                        Some(&vec![extracted]),
+                        Some(&vec![&bytes]),
                     );
                     terminals_arena.except_terminal(
-                        extracted.as_bytes(),
+                        &bytes,
                         nonterminal_to_terminal_id[nonterminal],
                     );
                 });
@@ -312,7 +313,7 @@ impl SimplifiedGrammar {
                                 &grammar.nonterminal_to_terminal_id,
                                 &mut grammar.nonterminal_to_token_ids,
                                 nonterminal,
-                                Some(&(iter.iter().map(|x| x.as_str()).collect_vec())),
+                                Some(&(iter.iter().map(|x| x.as_bytes()).collect_vec())),
                             );
                             for token in iter {
                                 grammar.terminals_trie.except_terminal(

@@ -1,5 +1,5 @@
-<start> ::= <sequence><digits>
-<sequence> ::= <except!([digits])>|<except!([digits])><sequence>
+<start> ::= <sequence>'\tb'
+<sequence> ::= <except!('\t')>|<except!('\t')><sequence>
 <digits> ::= <digit>|<digit><digits>
 <digit> ::= 'a'
 <test> ::= "atistics"

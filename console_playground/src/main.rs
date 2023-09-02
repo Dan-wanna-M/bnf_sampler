@@ -3,8 +3,7 @@ use bnf_sampler::{simplified_grammar, utils};
 use std::time::Instant;
 use std::{fs, vec};
 fn main() {
-    let input = fs::read_to_string("./assets/grammar.bnf").expect("grammar.bnf should exist.");
-    let input = String::from_utf8(utils::fix_utf8_escape(&input)).unwrap();
+    let input = fs::read_to_string("./assets/grammar.bnf").expect("./assets/grammar.bnf should exist.");
     let (tree, map) = utils::read_world_vocab("./assets/vocab.txt");
     let grammar = simplified_grammar::SimplifiedGrammar::new(&input, &tree, &map, 1024);
     let mut machine = Sampler::new(&grammar, "start", &tree, 1024 * 1024, true);
