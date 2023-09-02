@@ -98,6 +98,7 @@ jobs:
         if: matrix.build == 'macos'
         run: |
           echo $(ls ./target/release/)
+          echo ${bin}
           for bin in $${{ env.EXAMPLE_BINS }}
           do
             mv ./target/release/${bin} ./dist/${bin}
