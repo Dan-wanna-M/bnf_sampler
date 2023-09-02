@@ -6,20 +6,113 @@ on:
 name: Release
 
 env:
-  RELEASE_BIN: bnf_sampler
+  RELEASE_BIN: console_playground
   RELEASE_DIR: artifacts
   GITHUB_REF: '${{ github.ref }}'
   WINDOWS_TARGET: x86_64-pc-windows-msvc
   MACOS_TARGET: x86_64-apple-darwin
   LINUX_TARGET: x86_64-unknown-linux-gnu
+  EXAMPLE_BINS: console_playground
 
   # Space separated paths to include in the archive.
-  RELEASE_ADDS: README.md LICENSE console_playground/assets
-  EXAMPLE_BINS: bnf_sampler
+  RELEASE_ADDS: README.md LICENSE
 
 jobs:
+  build:
+    name: Build artifacts
+    runs-on: ${{ matrix.os }}
+    permissions: write-all
+    environment: dev
+    strategy:
+      matrix:
+        build: [linux, windows,macos]
+        include:
+          - build: linux
+            os: ubuntu-latest
+            rust: stable
+          - build: macos
+            os: macos-latest
+            rust: stable
+          - build: windows
+            os: windows-latest
+            rust: stable
+
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: ${{ matrix.rust }}
+          override: true
+
+      - name: Query version number
+        id: get_version
+        shell: bash
+        run: |
+          echo "using version tag ${GITHUB_REF:10}"
+          echo "version=${GITHUB_REF:10}" >> $GITHUB_OUTPUT
+      - name: Install tools (Linux)
+        if: matrix.build == 'linux'
+        run: |
+          sudo apt-get update -y --allow-releaseinfo-change
+      - name: Install p7zip (MacOS)
+        if: matrix.build == 'macos'
+        run: brew install p7zip
+
+      - name: Build (Linux)
+        if: matrix.build == 'linux'
+        run: |
+          rustup target add ${{ env.LINUX_TARGET }}
+          cargo build --release --target ${{ env.LINUX_TARGET }}
+      - name: Build (MacOS)
+        if: matrix.build == 'macos'
+        run: cargo build --release
+
+      - name: Build (Windows)
+        if: matrix.build == 'windows'
+        run: cargo build --release
+
+      - name: Create artifact directory
+        run: |
+          mkdir ${{ env.RELEASE_DIR }}
+          mkdir dist
+      - name: Create tarball (Linux)
+        if: matrix.build == 'linux'
+        run: |
+          for bin in ${{ env.EXAMPLE_BINS }}
+          do
+            mv ./target/${{ env.LINUX_TARGET }}/release/${bin} ./dist/${bin}
+          done
+          mv ${{ env.RELEASE_ADDS }} ./dist
+          7z a -tzip ./${{ env.RELEASE_DIR }}/${{ env.RELEASE_BIN }}-${{ steps.get_version.outputs.VERSION }}-${{ env.LINUX_TARGET }}.zip ./dist
+      - name: Create tarball (Windows)
+        if: matrix.build == 'windows'
+        shell: bash
+        run: |
+          for bin in ${{ env.EXAMPLE_BINS }}
+          do
+            mv ./target/release/${bin}.exe ./dist/${bin}.exe
+          done
+          mv ${{ env.RELEASE_ADDS }} ./dist
+          7z a -tzip ./${{ env.RELEASE_DIR }}/${{ env.RELEASE_BIN }}-${{ steps.get_version.outputs.VERSION }}-${{ env.WINDOWS_TARGET }}.zip ./dist
+      - name: Create tarball (MacOS)
+        if: matrix.build == 'macos'
+        run: |
+          for bin in $${{ env.EXAMPLE_BINS }}
+          do
+            mv ./target/release/${bin} ./dist/${bin}
+          done
+          mv ${{ env.RELEASE_ADDS }} ./dist
+          7z a -tzip ./${{ env.RELEASE_DIR }}/${{ env.RELEASE_BIN }}-${{ steps.get_version.outputs.VERSION }}-${{ env.MACOS_TARGET }}.zip ./dist
+      - name: Upload Zip
+        uses: actions/upload-artifact@v1
+        with:
+          name: ${{ matrix.build }}
+          path: ./${{ env.RELEASE_DIR }}
+
   release:
     name: GitHub Release
+    needs: build
+    permissions: write-all
     runs-on: ubuntu-latest
     steps:
       - name: Query version number
@@ -32,7 +125,7 @@ jobs:
         id: create_release
         uses: actions/create-release@v1
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.PAT }}
         with:
           tag_name: ${{ steps.get_version.outputs.VERSION }}
           release_name: ${{ steps.get_version.outputs.VERSION }}
