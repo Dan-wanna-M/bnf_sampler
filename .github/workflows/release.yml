@@ -6,7 +6,7 @@ on:
 name: Release
 
 env:
-  RELEASE_BIN: bnf_sampler_playground
+  RELEASE_BIN: bnf_sampler
   RELEASE_DIR: artifacts
   GITHUB_REF: '${{ github.ref }}'
   WINDOWS_TARGET: x86_64-pc-windows-msvc
@@ -20,7 +20,6 @@ jobs:
   build:
     name: Build artifacts
     runs-on: ${{ matrix.os }}
-    permissions: write-all
     strategy:
       matrix:
         build: [linux, macos, windows]
@@ -41,7 +40,7 @@ jobs:
         with:
           toolchain: ${{ matrix.rust }}
           override: true
-          target: windows-latest
+          target: wasm32-unknown-unknown
 
       - name: Query version number
         id: get_version
@@ -53,6 +52,8 @@ jobs:
         if: matrix.build == 'linux'
         run: |
           sudo apt-get update -y --allow-releaseinfo-change
+          sudo apt-get install libudev-dev
+          sudo apt-get install libasound2-dev
       - name: Install p7zip (MacOS)
         if: matrix.build == 'macos'
         run: brew install p7zip
@@ -61,14 +62,14 @@ jobs:
         if: matrix.build == 'linux'
         run: |
           rustup target add ${{ env.LINUX_TARGET }}
-          cargo build --release --target ${{ env.LINUX_TARGET }}
+          cargo build --release --examples --target ${{ env.LINUX_TARGET }}
       - name: Build (MacOS)
         if: matrix.build == 'macos'
-        run: cargo build --release
+        run: cargo build --release --examples
 
       - name: Build (Windows)
         if: matrix.build == 'windows'
-        run: cargo build --release
+        run: cargo build --release --examples
 
       - name: Create artifact directory
         run: |
@@ -111,7 +112,6 @@ jobs:
   release:
     name: GitHub Release
     needs: build
-    permissions: write-all
     runs-on: ubuntu-latest
     steps:
       - name: Query version number
