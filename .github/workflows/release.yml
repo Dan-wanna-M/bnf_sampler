@@ -20,6 +20,8 @@ jobs:
   build:
     name: Build artifacts
     runs-on: ${{ matrix.os }}
+    permissions: write-all
+    environment: dev
     strategy:
       matrix:
         build: [linux, macos, windows]
