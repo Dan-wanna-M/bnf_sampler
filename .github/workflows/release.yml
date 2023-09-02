@@ -6,12 +6,13 @@ on:
 name: Release
 
 env:
-  RELEASE_BIN: bnf_sampler
+  RELEASE_BIN: console_playground
   RELEASE_DIR: artifacts
   GITHUB_REF: '${{ github.ref }}'
   WINDOWS_TARGET: x86_64-pc-windows-msvc
   MACOS_TARGET: x86_64-apple-darwin
   LINUX_TARGET: x86_64-unknown-linux-gnu
+  EXAMPLE_BINS: console_playground
 
   # Space separated paths to include in the archive.
   RELEASE_ADDS: README.md LICENSE
@@ -20,9 +21,11 @@ jobs:
   build:
     name: Build artifacts
     runs-on: ${{ matrix.os }}
+    permissions: write-all
+    environment: dev
     strategy:
       matrix:
-        build: [linux, macos, windows]
+        build: [linux, windows,macos]
         include:
           - build: linux
             os: ubuntu-latest
@@ -40,7 +43,6 @@ jobs:
         with:
           toolchain: ${{ matrix.rust }}
           override: true
-          target: wasm32-unknown-unknown
 
       - name: Query version number
         id: get_version
@@ -52,8 +54,6 @@ jobs:
         if: matrix.build == 'linux'
         run: |
           sudo apt-get update -y --allow-releaseinfo-change
-          sudo apt-get install libudev-dev
-          sudo apt-get install libasound2-dev
       - name: Install p7zip (MacOS)
         if: matrix.build == 'macos'
         run: brew install p7zip
@@ -62,14 +62,14 @@ jobs:
         if: matrix.build == 'linux'
         run: |
           rustup target add ${{ env.LINUX_TARGET }}
-          cargo build --release --examples --target ${{ env.LINUX_TARGET }}
+          cargo build --release --target ${{ env.LINUX_TARGET }}
       - name: Build (MacOS)
         if: matrix.build == 'macos'
-        run: cargo build --release --examples
+        run: cargo build --release
 
       - name: Build (Windows)
         if: matrix.build == 'windows'
-        run: cargo build --release --examples
+        run: cargo build --release
 
       - name: Create artifact directory
         run: |
@@ -80,7 +80,7 @@ jobs:
         run: |
           for bin in ${{ env.EXAMPLE_BINS }}
           do
-            mv ./target/${{ env.LINUX_TARGET }}/release/examples/${bin} ./dist/${bin}
+            mv ./target/${{ env.LINUX_TARGET }}/release/${bin} ./dist/${bin}
           done
           mv ${{ env.RELEASE_ADDS }} ./dist
           7z a -tzip ./${{ env.RELEASE_DIR }}/${{ env.RELEASE_BIN }}-${{ steps.get_version.outputs.VERSION }}-${{ env.LINUX_TARGET }}.zip ./dist
@@ -90,7 +90,7 @@ jobs:
         run: |
           for bin in ${{ env.EXAMPLE_BINS }}
           do
-            mv ./target/release/examples/${bin}.exe ./dist/${bin}.exe
+            mv ./target/release/${bin}.exe ./dist/${bin}.exe
           done
           mv ${{ env.RELEASE_ADDS }} ./dist
           7z a -tzip ./${{ env.RELEASE_DIR }}/${{ env.RELEASE_BIN }}-${{ steps.get_version.outputs.VERSION }}-${{ env.WINDOWS_TARGET }}.zip ./dist
@@ -99,7 +99,7 @@ jobs:
         run: |
           for bin in $${{ env.EXAMPLE_BINS }}
           do
-            mv ./target/release/examples/${bin} ./dist/${bin}
+            mv ./target/release/${bin} ./dist/${bin}
           done
           mv ${{ env.RELEASE_ADDS }} ./dist
           7z a -tzip ./${{ env.RELEASE_DIR }}/${{ env.RELEASE_BIN }}-${{ steps.get_version.outputs.VERSION }}-${{ env.MACOS_TARGET }}.zip ./dist
@@ -112,6 +112,7 @@ jobs:
   release:
     name: GitHub Release
     needs: build
+    permissions: write-all
     runs-on: ubuntu-latest
     steps:
       - name: Query version number
@@ -124,7 +125,7 @@ jobs:
         id: create_release
         uses: actions/create-release@v1
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.PAT }}
         with:
           tag_name: ${{ steps.get_version.outputs.VERSION }}
           release_name: ${{ steps.get_version.outputs.VERSION }}
