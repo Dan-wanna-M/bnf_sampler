@@ -21,7 +21,6 @@ jobs:
   build:
     name: Build artifacts
     runs-on: ${{ matrix.os }}
-    permissions: write-all
     environment: dev
     strategy:
       matrix:
@@ -113,7 +112,6 @@ jobs:
   release:
     name: GitHub Release
     needs: build
-    permissions: write-all
     runs-on: ubuntu-latest
     steps:
       - name: Query version number
@@ -126,7 +124,7 @@ jobs:
         id: create_release
         uses: actions/create-release@v1
         env:
-          GITHUB_TOKEN: ${{ secrets.PAT }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tag_name: ${{ steps.get_version.outputs.VERSION }}
           release_name: ${{ steps.get_version.outputs.VERSION }}
