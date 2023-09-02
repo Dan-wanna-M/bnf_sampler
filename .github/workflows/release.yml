@@ -1,0 +1,82 @@
+on:
+  push:
+    tags:
+      - 'v*' # Run when tag matches v*, i.e. v1.0, v20.15.10
+
+name: Release
+
+env:
+  RELEASE_BIN: bnf_sampler
+  RELEASE_DIR: artifacts
+  GITHUB_REF: '${{ github.ref }}'
+  WINDOWS_TARGET: x86_64-pc-windows-msvc
+  MACOS_TARGET: x86_64-apple-darwin
+  LINUX_TARGET: x86_64-unknown-linux-gnu
+
+  # Space separated paths to include in the archive.
+  RELEASE_ADDS: README.md LICENSE console_playground/assets
+  EXAMPLE_BINS: bnf_sampler
+
+jobs:
+  release:
+    name: GitHub Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Query version number
+        id: get_version
+        shell: bash
+        run: |
+          echo "using version tag ${GITHUB_REF:10}"
+          echo "version=${GITHUB_REF:10}" >> $GITHUB_OUTPUT
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ steps.get_version.outputs.VERSION }}
+          release_name: ${{ steps.get_version.outputs.VERSION }}
+
+      - name: Download Linux tarball
+        uses: actions/download-artifact@v1
+        with:
+          name: linux
+
+      - name: Download MacOS tarball
+        uses: actions/download-artifact@v1
+        with:
+          name: windows
+
+      - name: Download MacOS tarball
+        uses: actions/download-artifact@v1
+        with:
+          name: macos
+
+      - name: Release Linux tarball
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./linux/${{ env.RELEASE_BIN }}-${{ steps.get_version.outputs.VERSION }}-${{ env.LINUX_TARGET }}.zip
+          asset_content_type: application/zip
+          asset_name: ${{ env.RELEASE_BIN }}-${{ steps.get_version.outputs.VERSION }}-${{ env.LINUX_TARGET }}.zip
+
+      - name: Release Windows tarball
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./windows/${{ env.RELEASE_BIN }}-${{ steps.get_version.outputs.VERSION }}-${{ env.WINDOWS_TARGET }}.zip
+          asset_content_type: application/zip
+          asset_name: ${{ env.RELEASE_BIN }}-${{ steps.get_version.outputs.VERSION }}-${{ env.WINDOWS_TARGET }}.zip
+      - name: Release MacOS tarball
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./macos/${{ env.RELEASE_BIN }}-${{ steps.get_version.outputs.VERSION }}-${{ env.MACOS_TARGET }}.zip
+          asset_content_type: application/zip
+          asset_name: ${{ env.RELEASE_BIN }}-${{ steps.get_version.outputs.VERSION }}-${{ env.MACOS_TARGET }}.zip
