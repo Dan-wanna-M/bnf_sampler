@@ -17,6 +17,12 @@ impl<T: Clone + Copy> BufferArena<T> {
     }
 
     pub fn allocate_a_stack(&mut self, capacity: usize) -> FixedBuffer<T> {
+        assert!(
+            self.current_ptr + capacity <= self.arena.len(),
+            "Not enough arena capacity: {} is smaller than {}. Set a larger --arena_capacity or temp_arena_capacity in the command line.",
+            self.arena.len(),
+            self.current_ptr + capacity
+        );
         let buffer = &mut self.arena[self.current_ptr..self.current_ptr + capacity];
         self.current_ptr += capacity;
         FixedBuffer { buffer, top: 0 }

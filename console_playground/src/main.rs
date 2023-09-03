@@ -1,42 +1,79 @@
 use bnf_sampler::sampler::{PossibleTokensResult, Sampler};
 use bnf_sampler::{simplified_grammar, utils};
+use clap::Parser;
 use std::time::Instant;
 use std::{fs, vec};
+#[derive(Parser, Debug)]
+#[command(author, version, about, long_about = None)]
+struct Args {
+    /// to display stacks in the sampler.
+    #[arg(short, long, default_value_t = false)]
+    stacks_display: bool,
+    /// to display all possible tokens. WARNING: it can be slow when there are a lot of possible tokens.
+    #[arg(short, long, default_value_t = true)]
+    possible_tokens_display: bool,
+    /// to display input in bytes.
+    #[arg(short, long, default_value_t = false)]
+    input_display: bool,
+    /// set the arena capacity.
+    #[arg(short, long, default_value_t = 1024*1024)]
+    arena_capacity: usize,
+    /// set the temp arena capacity used to expand each except!([nonterminal]).
+    #[arg(short, long, default_value_t = 1024)]
+    temp_arena_capacity: usize,
+    /// enable stack to bytes cache. When a nonterminal directly expands to a lot of nonterminals and terminals, it may be slow.
+    #[arg(short, long, default_value_t = true)]
+    bytes_cache: bool,
+    /// set the initial nonterminal.
+    #[arg(short = 'n', long, default_value = "start")]
+    start_nonterminal: String,
+}
+
 fn main() {
-    let input = fs::read_to_string("./assets/grammar.bnf").expect("./assets/grammar.bnf should exist.");
+    let args = Args::parse();
+    println!("{:?}", args);
+    let input =
+        fs::read_to_string("./assets/grammar.bnf").expect("./assets/grammar.bnf should exist.");
     let (tree, map) = utils::read_world_vocab("./assets/vocab.txt");
-    let grammar = simplified_grammar::SimplifiedGrammar::new(&input, &tree, &map, 1024);
-    let mut machine = Sampler::new(&grammar, "start", &tree, 1024 * 1024, true);
-    // println!("{:?}", machine.stacks);
+    let grammar =
+        simplified_grammar::SimplifiedGrammar::new(&input, &tree, &map, args.temp_arena_capacity);
+    let mut machine = Sampler::new(
+        &grammar,
+        &args.start_nonterminal,
+        &tree,
+        args.arena_capacity,
+        args.bytes_cache,
+    );
+    if args.stacks_display
+    {
+        println!("Stacks: {:?}", machine.stacks);
+    }
+
     if let PossibleTokensResult::Continue(result) = machine.all_possible_next_tokens(None) {
         let result: Vec<&str> = result.iter().map(|x| map[&(x as u32)].as_str()).collect();
-        // println!("{:?}", result);
+        if args.possible_tokens_display
+        {
+            println!("Possible tokens: {:?}", result);
+        }
+    }
+    else {
+        panic!("An internal eror happens.")
     }
 
     let mut times: Vec<f64> = vec![];
-    // machine.all_possible_next_tokens(Some("我是土豆".as_bytes()));
-    // println!("{:?}", machine.stacks);
-    let now = Instant::now();
-    /*
-    machine.all_possible_next_tokens(Some("我热爱土豆".as_bytes()));
-    machine.all_possible_next_tokens(Some("我爱你".as_bytes()));
-    machine.all_possible_next_tokens(Some("你是一个一个".as_bytes()));
-    */
-    let end = now.elapsed();
-    // println!("Time used: {:?}", end / 3);
-    // return;
     loop {
-        // println!("{:?}",grammar.nonterminal_to_terminal_id);
         println!("Input a token: ");
         let mut input = String::new();
         std::io::stdin()
             .read_line(&mut input)
             .expect("Input should exist");
         let input = utils::fix_utf8_escape(input.trim());
-        println!("{:?}", input);
+        if args.input_display
+        {
+            println!("Input: {:?}", input);
+        }
         let now = Instant::now();
         let result = machine.all_possible_next_tokens(Some(&input));
-        // println!("{:?}", machine);
         let end = now.elapsed();
         times.push(end.as_secs_f64());
         println!("Time used: {:?}", end);
@@ -53,8 +90,18 @@ fn main() {
                 break;
             }
         };
-        // println!("{:?}", result);
-        println!("{:?}", machine.stacks.clone());
+        if args.possible_tokens_display
+        {
+            println!("Possible tokens: {:?}", result);
+        }
+        if args.stacks_display
+        {
+            println!("Stacks: {:?}", machine.stacks);
+        }
+
     }
-    println!("{}", times.iter().sum::<f64>() / times.len() as f64);
+    println!(
+        "Average time taken for each token: {}",
+        times.iter().sum::<f64>() / times.len() as f64
+    );
 }

@@ -32,7 +32,7 @@ pub struct Sampler<'a> {
     stack_arena: BufferArena<StackItem<'a>>,
     stacks_to_token_ids: FxHashMap<Vec<Vec<StackItem<'a>>>, BitSet<u32>>,
     token_ids: BitSet<u32>,
-    stack_state_cache_enabled: bool,
+    stack_to_bytes_cache_enabled: bool,
 }
 #[derive(Debug, PartialEq, Clone, Copy)]
 enum AcceptTokensResult {
@@ -151,7 +151,7 @@ impl<'a> Sampler<'a> {
         start_term: &str,
         tokens_tree: &'a Trie<VecU8Wrapper, u32>,
         stack_arena_capacity: usize,
-        stack_state_cache_enabled: bool,
+        stack_to_bytes_cache_enabled: bool,
     ) -> Sampler<'a> {
         let stacks = vec![vec![StackItem::Nonterminal(
             grammar.nonterminal_to_terminal_id[start_term],
@@ -167,7 +167,7 @@ impl<'a> Sampler<'a> {
             stacks_to_token_ids,
             token_ids,
             stack_arena: BufferArena::with_capacity(stack_arena_capacity),
-            stack_state_cache_enabled,
+            stack_to_bytes_cache_enabled,
         }
     }
 
@@ -208,7 +208,7 @@ impl<'a> Sampler<'a> {
                     self.stacks_to_token_ids
                         .entry(self.stacks.clone())
                         .or_insert_with(|| {
-                            let mut state_cache: FxHashMap<
+                            let mut stack_to_bytes_cache: FxHashMap<
                                 (FixedBuffer<StackItem<'a>>, Box<[u8]>),
                                 bool,
                             > = FxHashMap::default();
@@ -241,8 +241,8 @@ impl<'a> Sampler<'a> {
                                         self.stack_arena.allocate_a_stack(stack.len());
                                     temp_stack.copy_from_slice(stack.as_slice());
                                     let mut cache;
-                                    if self.stack_state_cache_enabled {
-                                        cache = Some(&mut state_cache);
+                                    if self.stack_to_bytes_cache_enabled {
+                                        cache = Some(&mut stack_to_bytes_cache);
                                     } else {
                                         cache = None;
                                     }
@@ -287,13 +287,13 @@ impl<'a> Sampler<'a> {
                 };
                 let mut stack = self.stack_arena.allocate_a_stack(self.stacks[i].len());
                 stack.copy_from_slice(&self.stacks[i]);
-                let state_cache: &mut FxHashMap<(FixedBuffer<StackItem<'a>>, Box<[u8]>), bool> =
+                let stack_to_bytes_cache: &mut FxHashMap<(FixedBuffer<StackItem<'a>>, Box<[u8]>), bool> =
                     &mut FxHashMap::default();
                 match stack.last() {
                     Some(_) => {
                         let mut cache;
-                        if self.stack_state_cache_enabled {
-                            cache = Some(state_cache);
+                        if self.stack_to_bytes_cache_enabled {
+                            cache = Some(stack_to_bytes_cache);
                         } else {
                             cache = None;
                         }
@@ -520,7 +520,7 @@ impl<'a> Sampler<'a> {
         grammar: &'a SimplifiedGrammar,
         bytes: Option<&'b [u8]>,
         find_all: bool,
-        state_cache: &mut Option<&mut FxHashMap<(FixedBuffer<StackItem<'a>>, Box<[u8]>), bool>>,
+        stack_to_bytes_cache: &mut Option<&mut FxHashMap<(FixedBuffer<StackItem<'a>>, Box<[u8]>), bool>>,
         after_finding_stack: &mut F1,
         after_match_failed: &mut F2,
     ) -> bool
@@ -534,7 +534,7 @@ impl<'a> Sampler<'a> {
              top: NonterminalID,
              stack: &[Option<StackItem<'a>>],
              bytes: Option<&'b [u8]>,
-             state_cache: &mut Option<
+             stack_to_bytes_cache: &mut Option<
                 &mut FxHashMap<(FixedBuffer<StackItem<'a>>, Box<[u8]>), bool>,
             >,
              after_finding_stack: &mut F1| {
@@ -561,7 +561,7 @@ impl<'a> Sampler<'a> {
                                 grammar,
                                 bytes,
                                 find_all,
-                                state_cache,
+                                stack_to_bytes_cache,
                                 after_finding_stack,
                                 after_match_failed,
                             );
@@ -582,7 +582,7 @@ impl<'a> Sampler<'a> {
                             grammar,
                             bytes,
                             find_all,
-                            state_cache,
+                            stack_to_bytes_cache,
                             after_finding_stack,
                             after_match_failed,
                         );
@@ -601,7 +601,7 @@ impl<'a> Sampler<'a> {
                         top,
                         stack.as_raw_slice(),
                         bytes,
-                        state_cache,
+                        stack_to_bytes_cache,
                         after_finding_stack,
                     )
                 }
@@ -653,8 +653,8 @@ impl<'a> Sampler<'a> {
                                             .into(),
                                     );
                                     let temp;
-                                    if let Some(state_cache) = state_cache {
-                                        if let Some(value) = state_cache.get(&k) {
+                                    if let Some(stack_to_bytes_cache) = stack_to_bytes_cache {
+                                        if let Some(value) = stack_to_bytes_cache.get(&k) {
                                             temp = *value;
                                         } else {
                                             temp = _find_stacks_matching_bytes(
@@ -665,10 +665,10 @@ impl<'a> Sampler<'a> {
                                                     &(bytes.unwrap()
                                                         [result.remaining_bytes_start as usize..]),
                                                 ),
-                                                &mut Some(state_cache),
+                                                &mut Some(stack_to_bytes_cache),
                                                 after_finding_stack,
                                             );
-                                            state_cache.insert(k, temp);
+                                            stack_to_bytes_cache.insert(k, temp);
                                         }
                                     } else {
                                         temp = _find_stacks_matching_bytes(
