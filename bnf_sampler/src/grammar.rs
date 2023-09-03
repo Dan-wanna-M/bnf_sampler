@@ -7,7 +7,7 @@ use crate::utils::NonterminalID;
 use crate::utils::VecU8Wrapper;
 use bit_set::BitSet;
 use bnf::Production;
-use bnf::{Grammar, Term};
+use bnf::Term;
 use itertools::Itertools;
 use memchr::memmem;
 use qp_trie::Trie;
@@ -21,7 +21,7 @@ pub(crate) enum U8Term {
 }
 
 #[derive(Clone, Debug)]
-pub struct SimplifiedGrammar {
+pub struct Grammar {
     pub(crate) nonterminal_id_to_expression: FxHashMap<NonterminalID, SimplifiedExpressions>,
     pub(crate) nonterminal_to_terminal_id: FxHashMap<String, NonterminalID>,
     pub(crate) terminals_trie: TerminalsTrie,
@@ -32,7 +32,7 @@ pub(crate) enum SimplifiedExpressions {
     Expressions(FxHashSet<Vec<U8Term>>),
     Terminals(TrieNodeID),
 }
-impl SimplifiedGrammar {
+impl Grammar {
     pub fn new(
         input: &str,
         tokens_tree: &Trie<VecU8Wrapper, u32>,
@@ -41,7 +41,7 @@ impl SimplifiedGrammar {
     ) -> Self {
         let except_present = utils::EXCEPTS_REGEX.is_match(input);
         let any_present = input.contains(&format!("<{}>", utils::ANY_NONTERMINAL_NAME));
-        let mut grammar: Grammar = input.parse().unwrap();
+        let mut grammar: bnf::Grammar = input.parse().unwrap();
         if any_present {
             let mut any_prod = Production::new();
             any_prod.lhs = Term::Nonterminal(utils::ANY_NONTERMINAL_NAME.to_string());
@@ -274,7 +274,7 @@ impl SimplifiedGrammar {
                 .iter()
                 .map(|(key, value)| (nonterminal_to_terminal_id[key], value.clone()))
                 .collect();
-        let mut grammar = SimplifiedGrammar {
+        let mut grammar = Grammar {
             nonterminal_to_terminal_id,
             nonterminal_id_to_expression,
             terminals_trie: terminals_arena,

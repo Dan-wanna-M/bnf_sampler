@@ -1,6 +1,6 @@
-use crate::simplified_grammar::SimplifiedExpressions;
-use crate::simplified_grammar::SimplifiedGrammar;
-use crate::simplified_grammar::U8Term;
+use crate::grammar::SimplifiedExpressions;
+use crate::grammar::Grammar;
+use crate::grammar::U8Term;
 use crate::stack::BufferArena;
 use crate::stack::FixedBuffer;
 use crate::trie::TerminalsTrie;
@@ -18,15 +18,15 @@ use std::vec;
 const INVALID_INDEX: i32 = -1;
 
 #[derive(PartialEq, Clone, Debug, Copy, Eq, Hash)]
-pub enum StackItem<'a> {
+enum StackItem<'a> {
     Nonterminal(NonterminalID),
     Terminal(&'a [u8]),
     Terminals(TrieNodeID),
 }
 #[derive(Clone, Debug)]
 pub struct Sampler<'a> {
-    pub stacks: Vec<Vec<StackItem<'a>>>,
-    grammar: &'a SimplifiedGrammar,
+    stacks: Vec<Vec<StackItem<'a>>>,
+    grammar: &'a Grammar,
     tokens_buffer: Vec<(VecU8Wrapper, u32)>,
     tokens_tree: &'a Trie<VecU8Wrapper, u32>,
     stack_arena: BufferArena<StackItem<'a>>,
@@ -42,9 +42,11 @@ enum AcceptTokensResult {
 }
 #[derive(Debug, PartialEq, Clone)]
 pub enum PossibleTokensResult<'a> {
+    /// contains all possible token ids
     Continue(&'a BitSet<u32>),
+    /// at least one termination path according to the BNF is reached
     End,
-    Failed,
+    InputTokensRejected,
 }
 
 #[derive(Debug)]
@@ -145,9 +147,18 @@ impl<'a> Iterator for BufferOrTreeIter<'a> {
     }
 }
 
+impl<'a> std::fmt::Display for Sampler<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // The `f` value implements the `Write` trait, which is what the
+        // write! macro is expecting. Note that this formatting ignores the
+        // various flags provided to format strings.
+        write!(f, "stacks: {:?}", self.stacks)
+    }
+}
+
 impl<'a> Sampler<'a> {
     pub fn new(
-        grammar: &'a SimplifiedGrammar,
+        grammar: &'a Grammar,
         start_term: &str,
         tokens_tree: &'a Trie<VecU8Wrapper, u32>,
         stack_arena_capacity: usize,
@@ -179,7 +190,7 @@ impl<'a> Sampler<'a> {
         self.token_ids.clear();
         match self.accept_tokens(previous_tokens) {
             AcceptTokensResult::End => PossibleTokensResult::End,
-            AcceptTokensResult::Failed => PossibleTokensResult::Failed,
+            AcceptTokensResult::Failed => PossibleTokensResult::InputTokensRejected,
             AcceptTokensResult::Continue => {
                 let mut cached_node_id = FxHashSet::default();
                 for stack in self.stacks.iter() {
@@ -517,7 +528,7 @@ impl<'a> Sampler<'a> {
     fn find_stacks_matching_bytes<'b, F1, F2>(
         mut arena: NonNull<BufferArena<StackItem<'a>>>,
         stack: &mut FixedBuffer<StackItem<'a>>,
-        grammar: &'a SimplifiedGrammar,
+        grammar: &'a Grammar,
         bytes: Option<&'b [u8]>,
         find_all: bool,
         stack_to_bytes_cache: &mut Option<&mut FxHashMap<(FixedBuffer<StackItem<'a>>, Box<[u8]>), bool>>,

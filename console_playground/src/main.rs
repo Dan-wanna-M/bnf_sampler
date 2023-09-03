@@ -1,8 +1,9 @@
 use bnf_sampler::sampler::{PossibleTokensResult, Sampler};
-use bnf_sampler::{simplified_grammar, utils};
+use bnf_sampler::{grammar, utils};
 use clap::Parser;
 use std::time::Instant;
 use std::{fs, vec};
+/// Command line arguments
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
@@ -34,9 +35,9 @@ fn main() {
     println!("{:?}", args);
     let input =
         fs::read_to_string("./assets/grammar.bnf").expect("./assets/grammar.bnf should exist.");
-    let (tree, map) = utils::read_world_vocab("./assets/vocab.txt");
+    let (tree, map) = utils::read_rwkv_world_vocab("./assets/vocab.txt");
     let grammar =
-        simplified_grammar::SimplifiedGrammar::new(&input, &tree, &map, args.temp_arena_capacity);
+        grammar::Grammar::new(&input, &tree, &map, args.temp_arena_capacity);
     let mut machine = Sampler::new(
         &grammar,
         &args.start_nonterminal,
@@ -46,11 +47,11 @@ fn main() {
     );
     if args.stacks_display
     {
-        println!("Stacks: {:?}", machine.stacks);
+        println!("Stacks: {}", machine);
     }
 
     if let PossibleTokensResult::Continue(result) = machine.all_possible_next_tokens(None) {
-        let result: Vec<&str> = result.iter().map(|x| map[&(x as u32)].as_str()).collect();
+        let result: Vec<&str> = utils::get_tokens_from_token_ids(result, &map).collect();
         if args.possible_tokens_display
         {
             println!("Possible tokens: {:?}", result);
@@ -79,9 +80,9 @@ fn main() {
         println!("Time used: {:?}", end);
         let result: Vec<&str> = match result {
             PossibleTokensResult::Continue(result) => {
-                result.iter().map(|x| map[&(x as u32)].as_str()).collect()
+                utils::get_tokens_from_token_ids(result, &map).collect()
             }
-            PossibleTokensResult::Failed => {
+            PossibleTokensResult::InputTokensRejected => {
                 println!("Invalid input.");
                 break;
             }
@@ -96,7 +97,7 @@ fn main() {
         }
         if args.stacks_display
         {
-            println!("Stacks: {:?}", machine.stacks);
+            println!("Stacks: {}", machine);
         }
 
     }

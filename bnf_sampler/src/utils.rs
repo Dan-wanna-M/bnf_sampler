@@ -7,20 +7,20 @@ use std::fs::File;
 use std::io::{prelude::*, BufReader};
 use lazy_static::lazy_static;
 
-pub static ANY_NONTERMINAL_NAME: &str = "any!";
+pub(crate) static ANY_NONTERMINAL_NAME: &str = "any!";
 lazy_static! {
-    pub static ref EXCEPT_LITERAL_REGEX: Regex =
+    pub(crate) static ref EXCEPT_LITERAL_REGEX: Regex =
         Regex::new("except!\\(['\"](.+?)['\"]\\)").unwrap();
 }
 lazy_static! {
-    pub static ref EXCEPT_NONTERMINAL_REGEX: Regex =
+    pub(crate) static ref EXCEPT_NONTERMINAL_REGEX: Regex =
         Regex::new("except!\\(\\[(.+?)\\]\\)").unwrap();
 }
 lazy_static! {
-    pub static ref EXCEPTS_REGEX: Regex =
+    pub(crate) static ref EXCEPTS_REGEX: Regex =
         Regex::new("except!\\(['\"](.+?)['\"]\\)|except!\\(\\[(.+?)\\]\\)").unwrap();
 }
-pub fn extract_excepted<'a>(regex: &Regex, except_nonterminal: &'a str) -> Option<&'a str> {
+pub(crate) fn extract_excepted<'a>(regex: &Regex, except_nonterminal: &'a str) -> Option<&'a str> {
     Some(regex
         .captures(except_nonterminal)?
         .extract::<1>()
@@ -30,6 +30,7 @@ pub fn extract_excepted<'a>(regex: &Regex, except_nonterminal: &'a str) -> Optio
 pub struct NonterminalID(pub usize);
 
 impl std::hash::Hash for NonterminalID {
+    #[inline]
     fn hash<H: std::hash::Hasher>(&self, hasher: &mut H) {
         hasher.write_usize(self.0)
     }
@@ -88,7 +89,7 @@ pub fn get_tokens_from_token_ids<'a>(token_ids: &'a BitSet, token_id_to_token: &
     token_ids.iter().map(|x| token_id_to_token[&(x as u32)].as_str())
 }
 
-pub fn read_world_vocab(file_name: &str) -> (Trie<VecU8Wrapper, u32>, FxHashMap<u32, String>) {
+pub fn read_rwkv_world_vocab(file_name: &str) -> (Trie<VecU8Wrapper, u32>, FxHashMap<u32, String>) {
     let file = File::open(file_name).unwrap();
     let reader = BufReader::new(file);
     let mut map: FxHashMap<u32, String> = FxHashMap::default();
