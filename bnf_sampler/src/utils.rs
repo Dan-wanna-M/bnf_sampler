@@ -1,11 +1,11 @@
 use bit_set::BitSet;
+use lazy_static::lazy_static;
 use qp_trie::Trie;
 use regex::Regex;
 use rustc_hash::FxHashMap;
 use std::borrow::Borrow;
 use std::fs::File;
 use std::io::{prelude::*, BufReader};
-use lazy_static::lazy_static;
 
 pub(crate) static ANY_NONTERMINAL_NAME: &str = "any!";
 lazy_static! {
@@ -21,10 +21,7 @@ lazy_static! {
         Regex::new("except!\\(['\"](.+?)['\"]\\)|except!\\(\\[(.+?)\\]\\)").unwrap();
 }
 pub(crate) fn extract_excepted<'a>(regex: &Regex, except_nonterminal: &'a str) -> Option<&'a str> {
-    Some(regex
-        .captures(except_nonterminal)?
-        .extract::<1>()
-        .1[0])
+    Some(regex.captures(except_nonterminal)?.extract::<1>().1[0])
 }
 #[derive(PartialEq, Clone, Debug, Copy, Eq)]
 pub struct NonterminalID(pub usize);
@@ -84,9 +81,13 @@ impl<'a> qp_trie::Break for SliceU8Wrapper<'a> {
         &self.0[..loc]
     }
 }
-pub fn get_tokens_from_token_ids<'a>(token_ids: &'a BitSet, token_id_to_token: &'a FxHashMap<u32, String>)->impl Iterator<Item = &'a str>
-{
-    token_ids.iter().map(|x| token_id_to_token[&(x as u32)].as_str())
+pub fn get_tokens_from_token_ids<'a>(
+    token_ids: &'a BitSet,
+    token_id_to_token: &'a FxHashMap<u32, String>,
+) -> impl Iterator<Item = &'a str> {
+    token_ids
+        .iter()
+        .map(|x| token_id_to_token[&(x as u32)].as_str())
 }
 
 pub fn read_rwkv_world_vocab(file_name: &str) -> (Trie<VecU8Wrapper, u32>, FxHashMap<u32, String>) {
@@ -116,7 +117,7 @@ pub fn read_rwkv_world_vocab(file_name: &str) -> (Trie<VecU8Wrapper, u32>, FxHas
         let token = fix_utf8_escape(&line[start..end]);
         tree.insert(VecU8Wrapper(token.clone()), token_id);
         // println!("{:?}", String::from_utf8(token.clone()));
-        map.insert(token_id, String::from_utf8_lossy(&token).to_string());
+        map.insert(token_id, line[start..end].to_string());
     }
     (tree, map)
 }

@@ -1,5 +1,5 @@
-pub mod sampler;
 pub mod grammar;
+pub mod sampler;
 pub(crate) mod stack;
 pub(crate) mod trie;
 pub mod utils;

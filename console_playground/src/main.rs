@@ -8,13 +8,13 @@ use std::{fs, vec};
 #[command(author, version, about, long_about = None)]
 struct Args {
     /// to display stacks in the sampler.
-    #[arg(short, long, default_value_t = false)]
+    #[arg(short, long, default_value_t = false, action = clap::ArgAction::Set)]
     stacks_display: bool,
     /// to display all possible tokens. WARNING: it can be slow when there are a lot of possible tokens.
-    #[arg(short, long, default_value_t = true)]
+    #[arg(short, long, default_value_t = true, action = clap::ArgAction::Set)]
     possible_tokens_display: bool,
     /// to display input in bytes.
-    #[arg(short, long, default_value_t = false)]
+    #[arg(short, long, default_value_t = false,action = clap::ArgAction::Set)]
     input_display: bool,
     /// set the arena capacity.
     #[arg(short, long, default_value_t = 1024*1024)]
@@ -23,7 +23,7 @@ struct Args {
     #[arg(short, long, default_value_t = 1024)]
     temp_arena_capacity: usize,
     /// enable stack to bytes cache. When a nonterminal directly expands to a lot of nonterminals and terminals, it may be slow.
-    #[arg(short, long, default_value_t = true)]
+    #[arg(short, long, default_value_t = true, action = clap::ArgAction::Set)]
     bytes_cache: bool,
     /// set the initial nonterminal.
     #[arg(short = 'n', long, default_value = "start")]
@@ -36,8 +36,7 @@ fn main() {
     let input =
         fs::read_to_string("./assets/grammar.bnf").expect("./assets/grammar.bnf should exist.");
     let (tree, map) = utils::read_rwkv_world_vocab("./assets/vocab.txt");
-    let grammar =
-        grammar::Grammar::new(&input, &tree, &map, args.temp_arena_capacity);
+    let grammar = grammar::Grammar::new(&input, &tree, &map, args.temp_arena_capacity);
     let mut machine = Sampler::new(
         &grammar,
         &args.start_nonterminal,
@@ -45,19 +44,16 @@ fn main() {
         args.arena_capacity,
         args.bytes_cache,
     );
-    if args.stacks_display
-    {
+    if args.stacks_display {
         println!("Stacks: {}", machine);
     }
 
     if let PossibleTokensResult::Continue(result) = machine.all_possible_next_tokens(None) {
         let result: Vec<&str> = utils::get_tokens_from_token_ids(result, &map).collect();
-        if args.possible_tokens_display
-        {
+        if args.possible_tokens_display {
             println!("Possible tokens: {:?}", result);
         }
-    }
-    else {
+    } else {
         panic!("An internal eror happens.")
     }
 
@@ -69,8 +65,7 @@ fn main() {
             .read_line(&mut input)
             .expect("Input should exist");
         let input = utils::fix_utf8_escape(input.trim());
-        if args.input_display
-        {
+        if args.input_display {
             println!("Input: {:?}", input);
         }
         let now = Instant::now();
@@ -91,15 +86,12 @@ fn main() {
                 break;
             }
         };
-        if args.possible_tokens_display
-        {
+        if args.possible_tokens_display {
             println!("Possible tokens: {:?}", result);
         }
-        if args.stacks_display
-        {
-            println!("Stacks: {}", machine);
+        if args.stacks_display {
+            println!("{}", machine);
         }
-
     }
     println!(
         "Average time taken for each token: {}",

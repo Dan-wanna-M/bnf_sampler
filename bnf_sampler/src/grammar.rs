@@ -129,7 +129,7 @@ impl Grammar {
                             .map(|k| vec![U8Term::Terminal(k.0.clone())])
                             .collect(),
                     );
-                    for (key, _) in tokens_tree.iter().filter(|(x, _)| predicate(x)) {
+                    for (key, _) in tokens_tree.iter() {
                         terminals_arena.add(
                             key.0.as_slice(),
                             nonterminal_to_terminal_id[nonterminal],
@@ -193,7 +193,7 @@ impl Grammar {
             for nonterminal in excepts.iter() {
                 process_valid_excepts(&utils::EXCEPT_LITERAL_REGEX, nonterminal, |extracted| {
                     let bytes = utils::fix_utf8_escape(extracted);
-                    println!("{:?}",bytes);
+                    println!("{:?}", bytes);
                     add_tokens(
                         &mut simplified_grammar,
                         &mut terminals_arena,
@@ -202,10 +202,7 @@ impl Grammar {
                         nonterminal,
                         Some(&vec![&bytes]),
                     );
-                    terminals_arena.except_terminal(
-                        &bytes,
-                        nonterminal_to_terminal_id[nonterminal],
-                    );
+                    terminals_arena.except_literal(&bytes, nonterminal_to_terminal_id[nonterminal]);
                 });
             }
         }
@@ -316,7 +313,7 @@ impl Grammar {
                                 Some(&(iter.iter().map(|x| x.as_bytes()).collect_vec())),
                             );
                             for token in iter {
-                                grammar.terminals_trie.except_terminal(
+                                grammar.terminals_trie.except_literal(
                                     token.as_bytes(),
                                     grammar.nonterminal_to_terminal_id[nonterminal],
                                 );
