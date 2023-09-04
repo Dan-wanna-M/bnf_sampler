@@ -14,6 +14,7 @@ use qp_trie::Trie;
 use rustc_hash::FxHashMap;
 use rustc_hash::FxHashSet;
 use std::ptr::NonNull;
+use std::sync::Arc;
 use std::vec;
 
 const INVALID_INDEX: i32 = -1;
@@ -27,9 +28,9 @@ enum StackItem<'a> {
 #[derive(Clone, Debug)]
 pub struct Sampler<'a> {
     stacks: Vec<Vec<StackItem<'a>>>,
-    grammar: &'a Grammar,
+    grammar: Arc<Grammar>,
     tokens_buffer: Vec<(VecU8Wrapper, u32)>,
-    tokens_tree: &'a Trie<VecU8Wrapper, u32>,
+    tokens_tree: Arc<Trie<VecU8Wrapper, u32>>,
     stack_arena: BufferArena<StackItem<'a>>,
     stacks_to_token_ids: FxHashMap<Vec<Vec<StackItem<'a>>>, BitSet<u32>>,
     start_nonterminal: String,
@@ -156,9 +157,9 @@ impl<'a> std::fmt::Display for Sampler<'a> {
 
 impl<'a> Sampler<'a> {
     pub fn new(
-        grammar: &'a Grammar,
+        grammar: Arc<Grammar>,
         start_nonterminal: String,
-        tokens_tree: &'a Trie<VecU8Wrapper, u32>,
+        tokens_tree: Arc<Trie<VecU8Wrapper, u32>>,
         stack_arena_capacity: usize,
         stack_to_bytes_cache_enabled: bool,
     ) -> Sampler<'a> {
@@ -233,7 +234,7 @@ impl<'a> Sampler<'a> {
                                 let mut failed_prefixs: Trie<SliceU8Wrapper, ()> = Trie::new();
                                 let iter = BufferOrTreeIter::new(
                                     &self.tokens_buffer,
-                                    self.tokens_tree,
+                                    &self.tokens_tree,
                                     &self.grammar.terminals_trie,
                                     *stack.last().unwrap(),
                                 );
@@ -264,7 +265,7 @@ impl<'a> Sampler<'a> {
                                     let result = Self::find_stacks_matching_bytes(
                                         arena,
                                         &mut temp_stack,
-                                        self.grammar,
+                                        unsafe{&*Arc::as_ptr(&self.grammar)},
                                         Some(token.0.as_slice()),
                                         false,
                                         &mut cache,
@@ -317,7 +318,7 @@ impl<'a> Sampler<'a> {
                         accepted |= Self::find_stacks_matching_bytes(
                             arena,
                             &mut stack,
-                            self.grammar,
+                            unsafe{&*Arc::as_ptr(&self.grammar)},
                             bytes,
                             true,
                             &mut cache,

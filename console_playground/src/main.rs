@@ -1,6 +1,7 @@
 use bnf_sampler::sampler::{PossibleTokensResult, Sampler};
 use bnf_sampler::{grammar, utils};
 use clap::Parser;
+use std::sync::Arc;
 use std::time::Instant;
 use std::{fs, vec};
 /// Command line arguments
@@ -36,11 +37,17 @@ fn main() {
     let input =
         fs::read_to_string("./assets/grammar.bnf").expect("./assets/grammar.bnf should exist.");
     let (tree, map) = utils::read_rwkv_world_vocab("./assets/vocab.txt");
-    let grammar = grammar::Grammar::new(&input, &tree, &map, args.temp_arena_capacity);
+    let tree = Arc::new(tree);
+    let grammar = grammar::Grammar::new(
+        &input,
+        tree.clone(),
+        &map,
+        args.temp_arena_capacity,
+    );
     let mut machine = Sampler::new(
-        &grammar,
+        grammar,
         args.start_nonterminal.clone(),
-        &tree,
+        tree,
         args.arena_capacity,
         args.bytes_cache,
     );
@@ -69,6 +76,7 @@ fn main() {
             println!("Input: {:?}", input);
         }
         let now = Instant::now();
+        {
         let result = machine.all_possible_next_tokens(Some(&input));
         let end = now.elapsed();
         times.push(end.as_secs_f64());
@@ -92,6 +100,7 @@ fn main() {
         if args.stacks_display {
             println!("{}", machine);
         }
+    }
     }
     println!(
         "Average time taken for each token: {}",

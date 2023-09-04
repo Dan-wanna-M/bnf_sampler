@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use crate::sampler::PossibleTokensResult;
 use crate::sampler::Sampler;
 use crate::trie::TerminalsTrie;
@@ -35,10 +37,10 @@ pub(crate) enum SimplifiedExpressions {
 impl Grammar {
     pub fn new(
         input: &str,
-        tokens_tree: &Trie<VecU8Wrapper, u32>,
+        tokens_tree: Arc<Trie<VecU8Wrapper, u32>>,
         token_ids_to_tokens: &FxHashMap<u32, String>,
         stack_arena_capacity: usize,
-    ) -> Self {
+    ) -> Arc<Self> {
         let except_present = utils::EXCEPTS_REGEX.is_match(input);
         let any_present = input.contains(&format!("<{}>", utils::ANY_NONTERMINAL_NAME));
         let mut grammar: bnf::Grammar = input.parse().unwrap();
@@ -271,28 +273,29 @@ impl Grammar {
                 .iter()
                 .map(|(key, value)| (nonterminal_to_terminal_id[key], value.clone()))
                 .collect();
-        let mut grammar = Grammar {
+        let grammar = Arc::new(Grammar {
             nonterminal_to_terminal_id,
             nonterminal_id_to_expression,
             terminals_trie: terminals_arena,
             nonterminal_to_token_ids,
-        };
+        });
+        let mut_grammar = unsafe{&mut *(Arc::as_ptr(&grammar) as *mut Grammar)};
         if except_present {
             for nonterminal in excepts.iter() {
                 process_valid_excepts(&utils::EXCEPT_NONTERMINAL_REGEX, nonterminal, |extracted| {
                     assert!(
-                        grammar.nonterminal_to_terminal_id.contains_key(extracted),
+                        mut_grammar.nonterminal_to_terminal_id.contains_key(extracted),
                         "{extracted} is not a valid nonterminal."
                     );
                     // println!("{nonterminal}");
-                    grammar.nonterminal_to_terminal_id.insert(
+                    mut_grammar.nonterminal_to_terminal_id.insert(
                         nonterminal.to_string(),
                         NonterminalID(grammar.nonterminal_id_to_expression.len()),
                     );
                     let mut temp_machine = Sampler::new(
-                        &grammar,
+                        grammar.clone(),
                         extracted.to_string(),
-                        tokens_tree,
+                        tokens_tree.clone(),
                         stack_arena_capacity,
                         false,
                     );
@@ -306,28 +309,28 @@ impl Grammar {
                                     .collect_vec();
                             add_tokens(
                                 &mut simplified_grammar,
-                                &mut grammar.terminals_trie,
-                                &grammar.nonterminal_to_terminal_id,
-                                &mut grammar.nonterminal_to_token_ids,
+                                &mut mut_grammar.terminals_trie,
+                                &mut_grammar.nonterminal_to_terminal_id,
+                                &mut mut_grammar.nonterminal_to_token_ids,
                                 nonterminal,
                                 Some(&(iter.iter().map(|x| x.as_bytes()).collect_vec())),
                             );
                             for token in iter {
-                                grammar.terminals_trie.except_literal(
+                                mut_grammar.terminals_trie.except_literal(
                                     token.as_bytes(),
-                                    grammar.nonterminal_to_terminal_id[nonterminal],
+                                    mut_grammar.nonterminal_to_terminal_id[nonterminal],
                                 );
                             }
                             let (new_k, new_v) = {
                                 let (new_k, new_v) = convert_u8terms_to_simplified_expressions(
                                     nonterminal,
                                     simplified_grammar[nonterminal].clone(),
-                                    &mut grammar.terminals_trie,
+                                    &mut mut_grammar.terminals_trie,
                                     &grammar.nonterminal_to_terminal_id,
                                 );
                                 (grammar.nonterminal_to_terminal_id[&new_k], new_v)
                             };
-                            grammar.nonterminal_id_to_expression.insert(new_k, new_v);
+                            mut_grammar.nonterminal_id_to_expression.insert(new_k, new_v);
                             simplified_grammar.clear();
                         }
                         _ => panic!("{extracted} does not produce valid terminals."),
