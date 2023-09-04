@@ -291,7 +291,7 @@ impl Grammar {
                     );
                     let mut temp_machine = Sampler::new(
                         &grammar,
-                        extracted,
+                        extracted.to_string(),
                         tokens_tree,
                         stack_arena_capacity,
                         false,

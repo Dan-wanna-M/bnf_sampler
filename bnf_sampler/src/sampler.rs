@@ -32,6 +32,7 @@ pub struct Sampler<'a> {
     tokens_tree: &'a Trie<VecU8Wrapper, u32>,
     stack_arena: BufferArena<StackItem<'a>>,
     stacks_to_token_ids: FxHashMap<Vec<Vec<StackItem<'a>>>, BitSet<u32>>,
+    start_nonterminal: String,
     token_ids: BitSet<u32>,
     stack_to_bytes_cache_enabled: bool,
 }
@@ -120,7 +121,9 @@ impl<'a> Iterator for BufferOrTreeIter<'a> {
             TokensIterType::MultiplePrefixs((keys, trie_iter)) => match trie_iter {
                 None => {
                     result = keys.next().and_then(|key| {
-                        let mut iter = self.tokens_tree.iter_prefix(self.tokens_tree.longest_common_prefix(key));
+                        let mut iter = self
+                            .tokens_tree
+                            .iter_prefix(self.tokens_tree.longest_common_prefix(key));
                         let temp = iter.next();
                         *trie_iter = Some(iter);
                         temp
@@ -129,7 +132,9 @@ impl<'a> Iterator for BufferOrTreeIter<'a> {
                 Some(trie_iter) => {
                     result = trie_iter.next().or_else(|| {
                         keys.next().and_then(|key| {
-                            *trie_iter = self.tokens_tree.iter_prefix(self.tokens_tree.longest_common_prefix(key));
+                            *trie_iter = self
+                                .tokens_tree
+                                .iter_prefix(self.tokens_tree.longest_common_prefix(key));
                             trie_iter.next()
                         })
                     });
@@ -152,13 +157,13 @@ impl<'a> std::fmt::Display for Sampler<'a> {
 impl<'a> Sampler<'a> {
     pub fn new(
         grammar: &'a Grammar,
-        start_term: &str,
+        start_nonterminal: String,
         tokens_tree: &'a Trie<VecU8Wrapper, u32>,
         stack_arena_capacity: usize,
         stack_to_bytes_cache_enabled: bool,
     ) -> Sampler<'a> {
         let stacks = vec![vec![StackItem::Nonterminal(
-            grammar.nonterminal_to_terminal_id[start_term],
+            grammar.nonterminal_to_terminal_id[&start_nonterminal],
         )]];
         let token_ids: BitSet<u32> = BitSet::with_capacity(u16::MAX.into());
         let stacks_to_token_ids = FxHashMap::default();
@@ -172,7 +177,14 @@ impl<'a> Sampler<'a> {
             token_ids,
             stack_arena: BufferArena::with_capacity(stack_arena_capacity),
             stack_to_bytes_cache_enabled,
+            start_nonterminal,
         }
+    }
+
+    pub fn reset(&mut self) {
+        self.stacks = vec![vec![StackItem::Nonterminal(
+            self.grammar.nonterminal_to_terminal_id[&self.start_nonterminal],
+        )]];
     }
 
     pub fn all_possible_next_tokens(

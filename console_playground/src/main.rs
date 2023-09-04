@@ -39,7 +39,7 @@ fn main() {
     let grammar = grammar::Grammar::new(&input, &tree, &map, args.temp_arena_capacity);
     let mut machine = Sampler::new(
         &grammar,
-        &args.start_nonterminal,
+        args.start_nonterminal.clone(),
         &tree,
         args.arena_capacity,
         args.bytes_cache,
