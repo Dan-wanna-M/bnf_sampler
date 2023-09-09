@@ -20,19 +20,19 @@ use std::vec;
 const INVALID_INDEX: i32 = -1;
 
 #[derive(PartialEq, Clone, Debug, Copy, Eq, Hash)]
-enum StackItem<'a> {
+enum StackItem {
     Nonterminal(NonterminalID),
-    Terminal(&'a [u8]),
+    Terminal(*const [u8]),
     Terminals(TrieNodeID),
 }
 #[derive(Clone, Debug)]
-pub struct Sampler<'a> {
-    stacks: Vec<Vec<StackItem<'a>>>,
+pub struct Sampler {
+    stacks: Vec<Vec<StackItem>>,
     grammar: Arc<Grammar>,
     tokens_buffer: Vec<(VecU8Wrapper, u32)>,
     tokens_tree: Arc<Trie<VecU8Wrapper, u32>>,
-    stack_arena: BufferArena<StackItem<'a>>,
-    stacks_to_token_ids: FxHashMap<Vec<Vec<StackItem<'a>>>, BitSet<u32>>,
+    stack_arena: BufferArena<StackItem>,
+    stacks_to_token_ids: FxHashMap<Vec<Vec<StackItem>>, BitSet<u32>>,
     start_nonterminal: String,
     token_ids: BitSet<u32>,
     stack_to_bytes_cache_enabled: bool,
@@ -52,15 +52,15 @@ pub enum PossibleTokensResult<'a> {
 }
 
 #[derive(Debug)]
-enum BytesMatchResults<'a> {
+enum BytesMatchResults {
     Failed(usize),
-    Matches(Vec<BytesMatchResult<'a>>),
+    Matches(Vec<BytesMatchResult>),
 }
 #[derive(Debug)]
-struct BytesMatchResult<'a> {
+struct BytesMatchResult {
     remaining_bytes_start: i32,
     stack_offset: u32,
-    modified_item_at_offset: Option<StackItem<'a>>,
+    modified_item_at_offset: Option<StackItem>,
 }
 
 enum TokensIterType<'a> {
@@ -79,16 +79,16 @@ struct BufferOrTreeIter<'a> {
     tokens_tree: &'a Trie<VecU8Wrapper, u32>,
 }
 
-impl<'a, 'b> BufferOrTreeIter<'a> {
+impl<'a> BufferOrTreeIter<'a> {
     pub fn new(
         tokens_buffer: &'a [(VecU8Wrapper, u32)],
         tokens_tree: &'a Trie<VecU8Wrapper, u32>,
         trie: &'a TerminalsTrie,
-        current_top: StackItem<'b>,
+        current_top: StackItem,
     ) -> Self {
         let tokens_buffer_iter = match current_top {
             StackItem::Terminal(terminal) => TokensIterType::SinglePrefix(
-                tokens_tree.iter_prefix(tokens_tree.longest_common_prefix(terminal)),
+                tokens_tree.iter_prefix(tokens_tree.longest_common_prefix(unsafe { &*terminal })),
             ),
             StackItem::Terminals(node_id) => {
                 let node = trie.get(node_id);
@@ -146,7 +146,7 @@ impl<'a> Iterator for BufferOrTreeIter<'a> {
     }
 }
 
-impl<'a> std::fmt::Display for Sampler<'a> {
+impl std::fmt::Display for Sampler {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         // The `f` value implements the `Write` trait, which is what the
         // write! macro is expecting. Note that this formatting ignores the
@@ -155,14 +155,14 @@ impl<'a> std::fmt::Display for Sampler<'a> {
     }
 }
 
-impl<'a> Sampler<'a> {
+impl Sampler {
     pub fn new(
         grammar: Arc<Grammar>,
         start_nonterminal: String,
         tokens_tree: Arc<Trie<VecU8Wrapper, u32>>,
         stack_arena_capacity: usize,
         stack_to_bytes_cache_enabled: bool,
-    ) -> Sampler<'a> {
+    ) -> Self {
         let stacks = vec![vec![StackItem::Nonterminal(
             grammar.nonterminal_to_terminal_id[&start_nonterminal],
         )]];
@@ -226,7 +226,7 @@ impl<'a> Sampler<'a> {
                         .entry(self.stacks.clone())
                         .or_insert_with(|| {
                             let mut stack_to_bytes_cache: FxHashMap<
-                                (FixedBuffer<StackItem<'a>>, Box<[u8]>),
+                                (FixedBuffer<StackItem>, Box<[u8]>),
                                 bool,
                             > = FxHashMap::default();
                             for stack in self.stacks.iter() {
@@ -249,8 +249,7 @@ impl<'a> Sampler<'a> {
                                     }
                                     let arena = unsafe {
                                         NonNull::new_unchecked(
-                                            &mut self.stack_arena
-                                                as *mut BufferArena<StackItem<'a>>,
+                                            &mut self.stack_arena as *mut BufferArena<StackItem>,
                                         )
                                     };
                                     let mut temp_stack =
@@ -265,7 +264,7 @@ impl<'a> Sampler<'a> {
                                     let result = Self::find_stacks_matching_bytes(
                                         arena,
                                         &mut temp_stack,
-                                        unsafe{&*Arc::as_ptr(&self.grammar)},
+                                        &self.grammar,
                                         Some(token.0.as_slice()),
                                         false,
                                         &mut cache,
@@ -299,12 +298,12 @@ impl<'a> Sampler<'a> {
             let mut accepted = false;
             for i in 0..len {
                 let arena = unsafe {
-                    NonNull::new_unchecked(&mut self.stack_arena as *mut BufferArena<StackItem<'a>>)
+                    NonNull::new_unchecked(&mut self.stack_arena as *mut BufferArena<StackItem>)
                 };
                 let mut stack = self.stack_arena.allocate_a_stack(self.stacks[i].len());
                 stack.copy_from_slice(&self.stacks[i]);
                 let stack_to_bytes_cache: &mut FxHashMap<
-                    (FixedBuffer<StackItem<'a>>, Box<[u8]>),
+                    (FixedBuffer<StackItem>, Box<[u8]>),
                     bool,
                 > = &mut FxHashMap::default();
                 match stack.last() {
@@ -318,11 +317,11 @@ impl<'a> Sampler<'a> {
                         accepted |= Self::find_stacks_matching_bytes(
                             arena,
                             &mut stack,
-                            unsafe{&*Arc::as_ptr(&self.grammar)},
+                            &self.grammar,
                             bytes,
                             true,
                             &mut cache,
-                            &mut |temp_stack: &[Option<StackItem<'_>>], top: Option<StackItem>| {
+                            &mut |temp_stack: &[Option<StackItem>], top: Option<StackItem>| {
                                 let mut new_vec = Vec::with_capacity(temp_stack.len() + 1);
                                 new_vec.extend(temp_stack.iter().map(|x| x.unwrap()));
                                 if let Some(top) = top {
@@ -362,15 +361,15 @@ impl<'a> Sampler<'a> {
         }
         find_stacks_matching_bytes(None)
     }
-    fn match_stack_to_bytes<'b>(
-        stack: &FixedBuffer<StackItem<'a>>,
-        bytes: Option<&'b [u8]>,
+    fn match_stack_to_bytes(
+        stack: &FixedBuffer<StackItem>,
+        bytes: Option<&[u8]>,
         trie: &TerminalsTrie,
         find_all: bool,
-    ) -> BytesMatchResults<'a> {
+    ) -> BytesMatchResults {
         #[allow(clippy::too_many_arguments)]
-        fn _match_stack_to_bytes<'a>(
-            stack: &FixedBuffer<StackItem<'a>>,
+        fn _match_stack_to_bytes(
+            stack: &FixedBuffer<StackItem>,
             bytes: &[u8],
             bytes_index: usize,
             trie: &TerminalsTrie,
@@ -378,7 +377,7 @@ impl<'a> Sampler<'a> {
             find_all: bool,
             found: &mut bool,
             shortest_failed_index: &mut usize,
-            result: &mut Vec<BytesMatchResult<'a>>,
+            result: &mut Vec<BytesMatchResult>,
         ) {
             if bytes.is_empty() || (!find_all && *found) {
                 return;
@@ -394,6 +393,7 @@ impl<'a> Sampler<'a> {
                     }
                 }
                 StackItem::Terminal(terminal) => {
+                    let terminal = unsafe { &*terminal };
                     for i in 0..terminal.len() {
                         if bytes.len() == i + bytes_index {
                             *found = true;
@@ -509,7 +509,7 @@ impl<'a> Sampler<'a> {
         }
         let mut result: Vec<BytesMatchResult> = vec![];
         match bytes {
-            None => return BytesMatchResults::Matches(result),
+            None => BytesMatchResults::Matches(result),
             Some(bytes) => {
                 result.reserve(bytes.len());
                 let stack_offset = stack.len() - 1;
@@ -527,9 +527,9 @@ impl<'a> Sampler<'a> {
                     &mut result,
                 );
                 if result.is_empty() {
-                    return BytesMatchResults::Failed(shortest_failed_index);
+                    BytesMatchResults::Failed(shortest_failed_index)
                 } else {
-                    return BytesMatchResults::Matches(result);
+                    BytesMatchResults::Matches(result)
                 }
             }
         }
@@ -538,29 +538,29 @@ impl<'a> Sampler<'a> {
     #[allow(clippy::too_many_arguments)]
     #[allow(clippy::type_complexity)]
     fn find_stacks_matching_bytes<'b, F1, F2>(
-        mut arena: NonNull<BufferArena<StackItem<'a>>>,
-        stack: &mut FixedBuffer<StackItem<'a>>,
-        grammar: &'a Grammar,
+        mut arena: NonNull<BufferArena<StackItem>>,
+        stack: &mut FixedBuffer<StackItem>,
+        grammar: &Grammar,
         bytes: Option<&'b [u8]>,
         find_all: bool,
         stack_to_bytes_cache: &mut Option<
-            &mut FxHashMap<(FixedBuffer<StackItem<'a>>, Box<[u8]>), bool>,
+            &mut FxHashMap<(FixedBuffer<StackItem>, Box<[u8]>), bool>,
         >,
         after_finding_stack: &mut F1,
         after_match_failed: &mut F2,
     ) -> bool
     where
-        F1: FnMut(&[Option<StackItem<'a>>], Option<StackItem<'a>>),
+        F1: FnMut(&[Option<StackItem>], Option<StackItem>),
         F2: FnMut(&'b [u8], usize),
     {
         let trie = &grammar.terminals_trie;
         let mut _find_stacks_matching_bytes =
-            |mut arena: NonNull<BufferArena<StackItem<'a>>>,
+            |mut arena: NonNull<BufferArena<StackItem>>,
              top: NonterminalID,
-             stack: &[Option<StackItem<'a>>],
+             stack: &[Option<StackItem>],
              bytes: Option<&'b [u8]>,
              stack_to_bytes_cache: &mut Option<
-                &mut FxHashMap<(FixedBuffer<StackItem<'a>>, Box<[u8]>), bool>,
+                &mut FxHashMap<(FixedBuffer<StackItem>, Box<[u8]>), bool>,
             >,
              after_finding_stack: &mut F1| {
                 let mut found = false;
