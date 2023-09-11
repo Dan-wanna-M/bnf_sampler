@@ -192,11 +192,11 @@ impl Sampler {
 
     pub fn all_possible_next_tokens(
         &mut self,
-        previous_tokens: Option<&[u8]>,
+        input_token_id: Option<u32>,
     ) -> PossibleTokensResult {
         // let now = Instant::now();
         self.token_ids.clear();
-        match self.accept_tokens(previous_tokens) {
+        match self.accept_a_token(input_token_id) {
             AcceptTokensResult::End => PossibleTokensResult::End,
             AcceptTokensResult::Failed => PossibleTokensResult::InputTokensRejected,
             AcceptTokensResult::Continue => {
@@ -294,7 +294,7 @@ impl Sampler {
         }
     }
     #[must_use]
-    fn accept_tokens(&mut self, bytes: Option<&[u8]>) -> AcceptTokensResult {
+    fn accept_a_token(&mut self, token_id: Option<u32>) -> AcceptTokensResult {
         let mut find_stacks_matching_bytes = |bytes| {
             let len = self.stacks.len();
             let mut accepted = false;
@@ -355,6 +355,7 @@ impl Sampler {
             }
         };
         let result;
+        let bytes = token_id.map(|id| self.vocabulary.id_to_token[&id].as_slice());
         if bytes.is_some() {
             result = find_stacks_matching_bytes(bytes);
             if result == AcceptTokensResult::Failed || result == AcceptTokensResult::End {

@@ -38,7 +38,7 @@ impl std::hash::Hash for NonterminalID {
 impl nohash_hasher::IsEnabled for NonterminalID {}
 
 #[derive(PartialEq, Clone, Debug, Eq, Hash)]
-pub struct VecU8Wrapper(pub(crate) Vec<u8>);
+pub struct VecU8Wrapper(pub Vec<u8>);
 
 impl Borrow<[u8]> for VecU8Wrapper {
     #[inline]
@@ -96,8 +96,9 @@ pub fn get_tokens_from_token_ids<'a>(
 pub fn read_rwkv_world_vocab(file_name: &str) -> Arc<Vocabulary> {
     let file = File::open(file_name).unwrap();
     let reader = BufReader::new(file);
-    let mut map: FxHashMap<u32, String> = FxHashMap::default();
-    let mut tree = Trie::<VecU8Wrapper, u32>::new();
+    let mut id_to_token: FxHashMap<u32, Vec<u8>> =  FxHashMap::default();
+    let mut id_to_token_string: FxHashMap<u32, String> = FxHashMap::default();
+    let mut token_to_id = Trie::<VecU8Wrapper, u32>::new();
     for line in reader.lines() {
         let line = line.unwrap();
         let mut start = line.find(' ').unwrap_or_else(|| {
@@ -118,13 +119,15 @@ pub fn read_rwkv_world_vocab(file_name: &str) -> Arc<Vocabulary> {
         }
         // println!("token: {}",&line[start..end]);
         let token = fix_utf8_escape(&line[start..end]);
-        tree.insert(VecU8Wrapper(token.clone()), token_id);
+        token_to_id.insert(VecU8Wrapper(token.clone()), token_id);
+        id_to_token.insert(token_id, token);
         // println!("{:?}", String::from_utf8(token.clone()));
-        map.insert(token_id, line[start..end].to_string());
+        id_to_token_string.insert(token_id, line[start..end].to_string());
     }
     Arc::new(Vocabulary {
-        token_to_id: tree,
-        id_to_token: map,
+        token_to_id,
+        id_to_token_string,
+        id_to_token
     })
 }
 

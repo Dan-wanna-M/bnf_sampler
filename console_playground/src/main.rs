@@ -1,4 +1,5 @@
 use bnf_sampler::sampler::{PossibleTokensResult, Sampler};
+use bnf_sampler::utils::VecU8Wrapper;
 use bnf_sampler::{grammar, utils};
 use clap::Parser;
 use std::time::Instant;
@@ -50,7 +51,7 @@ fn main() {
 
     if let PossibleTokensResult::Continue(result) = machine.all_possible_next_tokens(None) {
         let result: Vec<&str> =
-            utils::get_tokens_from_token_ids(result, &vocabulary.id_to_token).collect();
+            utils::get_tokens_from_token_ids(result, &vocabulary.id_to_token_string).collect();
         if args.possible_tokens_display {
             println!("Possible tokens: {:?}", result);
         }
@@ -69,15 +70,25 @@ fn main() {
         if args.input_display {
             println!("Input: {:?}", input);
         }
+        let token_id = vocabulary.token_to_id.get(&VecU8Wrapper(input.clone()));
+        if token_id.is_none() {
+            println!(
+                "Invalid token that does not correspond to any token id: {:?}",
+                input
+            );
+            continue;
+        }
+        let token_id = *token_id.unwrap();
         let now = Instant::now();
         {
-            let result = machine.all_possible_next_tokens(Some(&input));
+            let result = machine.all_possible_next_tokens(Some(token_id));
             let end = now.elapsed();
             times.push(end.as_secs_f64());
             println!("Time used: {:?}", end);
             let result: Vec<&str> = match result {
                 PossibleTokensResult::Continue(result) => {
-                    utils::get_tokens_from_token_ids(result, &vocabulary.id_to_token).collect()
+                    utils::get_tokens_from_token_ids(result, &vocabulary.id_to_token_string)
+                        .collect()
                 }
                 PossibleTokensResult::InputTokensRejected => {
                     println!("Invalid input.");
