@@ -7,12 +7,12 @@ use crate::trie::TrieNodeID;
 use crate::utils;
 use crate::utils::NonterminalID;
 use crate::utils::VecU8Wrapper;
+use crate::vocabulary::Vocabulary;
 use bit_set::BitSet;
 use bnf::Production;
 use bnf::Term;
 use itertools::Itertools;
 use memchr::memmem;
-use qp_trie::Trie;
 use regex::Regex;
 use rustc_hash::FxHashMap;
 use rustc_hash::FxHashSet;
@@ -35,12 +35,7 @@ pub(crate) enum SimplifiedExpressions {
     Terminals(TrieNodeID),
 }
 impl Grammar {
-    pub fn new(
-        input: &str,
-        tokens_tree: Arc<Trie<VecU8Wrapper, u32>>,
-        token_ids_to_tokens: &FxHashMap<u32, String>,
-        stack_arena_capacity: usize,
-    ) -> Arc<Self> {
+    pub fn new(input: &str, vocabulary: Arc<Vocabulary>, stack_arena_capacity: usize) -> Arc<Self> {
         let except_present = utils::EXCEPTS_REGEX.is_match(input);
         let any_present = input.contains(&format!("<{}>", utils::ANY_NONTERMINAL_NAME));
         let mut grammar: bnf::Grammar = input.parse().unwrap();
@@ -125,13 +120,14 @@ impl Grammar {
                 Some(_) => {
                     simplified_grammar.insert(
                         nonterminal.to_string(),
-                        tokens_tree
+                        vocabulary
+                            .token_to_id
                             .keys()
                             .filter(|x| predicate(x))
                             .map(|k| vec![U8Term::Terminal(k.0.clone())])
                             .collect(),
                     );
-                    for (key, _) in tokens_tree.iter() {
+                    for (key, _) in vocabulary.token_to_id.iter() {
                         terminals_arena.add(
                             key.0.as_slice(),
                             nonterminal_to_terminal_id[nonterminal],
@@ -139,7 +135,7 @@ impl Grammar {
                         )
                     }
                     let mut bit_set = BitSet::new();
-                    bit_set.extend(tokens_tree.iter().filter_map(|(k, token_id)| {
+                    bit_set.extend(vocabulary.token_to_id.iter().filter_map(|(k, token_id)| {
                         if predicate(&k) {
                             Some(*(token_id) as usize)
                         } else {
@@ -153,13 +149,14 @@ impl Grammar {
                 None => {
                     simplified_grammar.insert(
                         nonterminal.to_string(),
-                        tokens_tree
+                        vocabulary
+                            .token_to_id
                             .keys()
                             .map(|k| vec![U8Term::Terminal(k.0.clone())])
                             .collect(),
                     );
                     let mut bit_set = BitSet::new();
-                    for (key, token_id) in tokens_tree.iter() {
+                    for (key, token_id) in vocabulary.token_to_id.iter() {
                         bit_set.insert((*token_id) as usize);
                         terminals_arena.add(
                             key.0.as_slice(),
@@ -279,12 +276,14 @@ impl Grammar {
             terminals_trie: terminals_arena,
             nonterminal_to_token_ids,
         });
-        let mut_grammar = unsafe{&mut *(Arc::as_ptr(&grammar) as *mut Grammar)};
+        let mut_grammar = unsafe { &mut *(Arc::as_ptr(&grammar) as *mut Grammar) };
         if except_present {
             for nonterminal in excepts.iter() {
                 process_valid_excepts(&utils::EXCEPT_NONTERMINAL_REGEX, nonterminal, |extracted| {
                     assert!(
-                        mut_grammar.nonterminal_to_terminal_id.contains_key(extracted),
+                        mut_grammar
+                            .nonterminal_to_terminal_id
+                            .contains_key(extracted),
                         "{extracted} is not a valid nonterminal."
                     );
                     // println!("{nonterminal}");
@@ -295,7 +294,7 @@ impl Grammar {
                     let mut temp_machine = Sampler::new(
                         grammar.clone(),
                         extracted.to_string(),
-                        tokens_tree.clone(),
+                        vocabulary.clone(),
                         stack_arena_capacity,
                         false,
                     );
@@ -304,7 +303,7 @@ impl Grammar {
                     match temp_machine.all_possible_next_tokens(None) {
                         PossibleTokensResult::Continue(tokens) => {
                             let iter =
-                                utils::get_tokens_from_token_ids(tokens, token_ids_to_tokens)
+                                utils::get_tokens_from_token_ids(tokens, &vocabulary.id_to_token)
                                     .map(|x| x.to_string())
                                     .collect_vec();
                             add_tokens(
@@ -330,7 +329,9 @@ impl Grammar {
                                 );
                                 (grammar.nonterminal_to_terminal_id[&new_k], new_v)
                             };
-                            mut_grammar.nonterminal_id_to_expression.insert(new_k, new_v);
+                            mut_grammar
+                                .nonterminal_id_to_expression
+                                .insert(new_k, new_v);
                             simplified_grammar.clear();
                         }
                         _ => panic!("{extracted} does not produce valid terminals."),

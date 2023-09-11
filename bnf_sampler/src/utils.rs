@@ -6,6 +6,9 @@ use rustc_hash::FxHashMap;
 use std::borrow::Borrow;
 use std::fs::File;
 use std::io::{prelude::*, BufReader};
+use std::sync::Arc;
+
+use crate::vocabulary::Vocabulary;
 
 pub(crate) static ANY_NONTERMINAL_NAME: &str = "any!";
 lazy_static! {
@@ -89,8 +92,8 @@ pub fn get_tokens_from_token_ids<'a>(
         .iter()
         .map(|x| token_id_to_token[&(x as u32)].as_str())
 }
-
-pub fn read_rwkv_world_vocab(file_name: &str) -> (Trie<VecU8Wrapper, u32>, FxHashMap<u32, String>) {
+/// Read the vocabulary from RWKV-world model series vocabulary file
+pub fn read_rwkv_world_vocab(file_name: &str) -> Arc<Vocabulary> {
     let file = File::open(file_name).unwrap();
     let reader = BufReader::new(file);
     let mut map: FxHashMap<u32, String> = FxHashMap::default();
@@ -119,7 +122,10 @@ pub fn read_rwkv_world_vocab(file_name: &str) -> (Trie<VecU8Wrapper, u32>, FxHas
         // println!("{:?}", String::from_utf8(token.clone()));
         map.insert(token_id, line[start..end].to_string());
     }
-    (tree, map)
+    Arc::new(Vocabulary {
+        token_to_id: tree,
+        id_to_token: map,
+    })
 }
 
 pub fn fix_utf8_escape(token: &str) -> Vec<u8> {

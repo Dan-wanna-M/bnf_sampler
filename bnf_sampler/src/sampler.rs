@@ -9,6 +9,7 @@ use crate::trie::TrieNodeID;
 use crate::utils::NonterminalID;
 use crate::utils::SliceU8Wrapper;
 use crate::utils::VecU8Wrapper;
+use crate::vocabulary::Vocabulary;
 use bit_set::BitSet;
 use qp_trie::Trie;
 use rustc_hash::FxHashMap;
@@ -30,7 +31,7 @@ pub struct Sampler {
     stacks: Vec<Vec<StackItem>>,
     grammar: Arc<Grammar>,
     tokens_buffer: Vec<(VecU8Wrapper, u32)>,
-    tokens_tree: Arc<Trie<VecU8Wrapper, u32>>,
+    vocabulary: Arc<Vocabulary>,
     stack_arena: BufferArena<StackItem>,
     stacks_to_token_ids: FxHashMap<Vec<Vec<StackItem>>, BitSet<u32>>,
     start_nonterminal: String,
@@ -159,7 +160,7 @@ impl Sampler {
     pub fn new(
         grammar: Arc<Grammar>,
         start_nonterminal: String,
-        tokens_tree: Arc<Trie<VecU8Wrapper, u32>>,
+        vocabulary: Arc<Vocabulary>,
         stack_arena_capacity: usize,
         stack_to_bytes_cache_enabled: bool,
     ) -> Self {
@@ -168,11 +169,12 @@ impl Sampler {
         )]];
         let token_ids: BitSet<u32> = BitSet::with_capacity(u16::MAX.into());
         let stacks_to_token_ids = FxHashMap::default();
-        let tokens_buffer = Vec::from_iter(tokens_tree.iter().map(|(k, v)| (k.clone(), *v)));
+        let tokens_buffer =
+            Vec::from_iter(vocabulary.token_to_id.iter().map(|(k, v)| (k.clone(), *v)));
         Sampler {
             stacks,
             grammar,
-            tokens_tree,
+            vocabulary,
             tokens_buffer,
             stacks_to_token_ids,
             token_ids,
@@ -234,7 +236,7 @@ impl Sampler {
                                 let mut failed_prefixs: Trie<SliceU8Wrapper, ()> = Trie::new();
                                 let iter = BufferOrTreeIter::new(
                                     &self.tokens_buffer,
-                                    &self.tokens_tree,
+                                    &self.vocabulary.token_to_id,
                                     &self.grammar.terminals_trie,
                                     *stack.last().unwrap(),
                                 );

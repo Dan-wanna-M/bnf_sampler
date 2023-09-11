@@ -1,7 +1,6 @@
 use bnf_sampler::sampler::{PossibleTokensResult, Sampler};
 use bnf_sampler::{grammar, utils};
 use clap::Parser;
-use std::sync::Arc;
 use std::time::Instant;
 use std::{fs, vec};
 /// Command line arguments
@@ -36,18 +35,12 @@ fn main() {
     println!("{:?}", args);
     let input =
         fs::read_to_string("./assets/grammar.bnf").expect("./assets/grammar.bnf should exist.");
-    let (tree, map) = utils::read_rwkv_world_vocab("./assets/vocab.txt");
-    let tree = Arc::new(tree);
-    let grammar = grammar::Grammar::new(
-        &input,
-        tree.clone(),
-        &map,
-        args.temp_arena_capacity,
-    );
+    let vocabulary = utils::read_rwkv_world_vocab("./assets/vocab.txt");
+    let grammar = grammar::Grammar::new(&input, vocabulary.clone(), args.temp_arena_capacity);
     let mut machine = Sampler::new(
         grammar,
         args.start_nonterminal.clone(),
-        tree,
+        vocabulary.clone(),
         args.arena_capacity,
         args.bytes_cache,
     );
@@ -56,7 +49,8 @@ fn main() {
     }
 
     if let PossibleTokensResult::Continue(result) = machine.all_possible_next_tokens(None) {
-        let result: Vec<&str> = utils::get_tokens_from_token_ids(result, &map).collect();
+        let result: Vec<&str> =
+            utils::get_tokens_from_token_ids(result, &vocabulary.id_to_token).collect();
         if args.possible_tokens_display {
             println!("Possible tokens: {:?}", result);
         }
@@ -77,30 +71,30 @@ fn main() {
         }
         let now = Instant::now();
         {
-        let result = machine.all_possible_next_tokens(Some(&input));
-        let end = now.elapsed();
-        times.push(end.as_secs_f64());
-        println!("Time used: {:?}", end);
-        let result: Vec<&str> = match result {
-            PossibleTokensResult::Continue(result) => {
-                utils::get_tokens_from_token_ids(result, &map).collect()
+            let result = machine.all_possible_next_tokens(Some(&input));
+            let end = now.elapsed();
+            times.push(end.as_secs_f64());
+            println!("Time used: {:?}", end);
+            let result: Vec<&str> = match result {
+                PossibleTokensResult::Continue(result) => {
+                    utils::get_tokens_from_token_ids(result, &vocabulary.id_to_token).collect()
+                }
+                PossibleTokensResult::InputTokensRejected => {
+                    println!("Invalid input.");
+                    break;
+                }
+                PossibleTokensResult::End => {
+                    println!("One termination path is reached.");
+                    break;
+                }
+            };
+            if args.possible_tokens_display {
+                println!("Possible tokens: {:?}", result);
             }
-            PossibleTokensResult::InputTokensRejected => {
-                println!("Invalid input.");
-                break;
+            if args.stacks_display {
+                println!("{}", machine);
             }
-            PossibleTokensResult::End => {
-                println!("One termination path is reached.");
-                break;
-            }
-        };
-        if args.possible_tokens_display {
-            println!("Possible tokens: {:?}", result);
         }
-        if args.stacks_display {
-            println!("{}", machine);
-        }
-    }
     }
     println!(
         "Average time taken for each token: {}",

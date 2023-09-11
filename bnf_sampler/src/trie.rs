@@ -72,7 +72,7 @@ impl TerminalsTrie {
                 negative_bytes_index: None,
                 value: None,
                 children: HashMap::default(),
-                can_stop
+                can_stop,
             },
         ));
         for i in terminal {
@@ -84,10 +84,10 @@ impl TerminalsTrie {
                         &mut self.arena,
                         TrieNode {
                             index,
-                            negative_bytes_index:None,
+                            negative_bytes_index: None,
                             value: None,
                             children: HashMap::default(),
-                            can_stop
+                            can_stop,
                         },
                     );
                     self.get_mut(current_node_id).append(*i, new_node_id);
@@ -115,7 +115,12 @@ impl TerminalsTrie {
                 index = 0;
             }
             let current_node = this.get(current_node_id);
-            for (k, v) in current_node.children.iter().map(|(k,v)|(*k,*v)).collect_vec() {
+            for (k, v) in current_node
+                .children
+                .iter()
+                .map(|(k, v)| (*k, *v))
+                .collect_vec()
+            {
                 if terminal[index] == k {
                     _except_literal(this, v, terminal, index + 1);
                 } else if terminal[0] == k {
@@ -127,7 +132,7 @@ impl TerminalsTrie {
         }
         _except_literal(self, self.roots[&nonterminal_id], terminal, 0);
     }
-    
+
     pub fn iter(&self, start_node_id: TrieNodeID) -> TerminalsTrieIter {
         let stack = vec![self.get(start_node_id).children.iter()];
         return TerminalsTrieIter {
@@ -144,7 +149,7 @@ pub struct TrieNodeID {
 #[derive(Clone, Debug)]
 pub(crate) struct TrieNode {
     pub index: u16,
-    pub can_stop:bool,
+    pub can_stop: bool,
     pub negative_bytes_index: Option<u16>,
     pub value: Option<Box<[u8]>>,
     pub children: HashMap<u8, TrieNodeID, BuildNoHashHasher<u8>>,
