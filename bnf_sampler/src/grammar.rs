@@ -23,6 +23,7 @@ pub(crate) enum U8Term {
 }
 
 #[derive(Clone, Debug)]
+/// The struct represents the BNF schema.
 pub struct Grammar {
     pub(crate) nonterminal_id_to_expression: FxHashMap<NonterminalID, SimplifiedExpressions>,
     pub(crate) nonterminal_to_terminal_id: FxHashMap<String, NonterminalID>,
@@ -35,6 +36,13 @@ pub(crate) enum SimplifiedExpressions {
     Terminals(TrieNodeID),
 }
 impl Grammar {
+    /// Create a new grammar.
+    ///
+    /// # Arguments
+    ///
+    /// * `input` - the BNF schema in text format
+    /// * `vocabulary` - vocabulary is used to generate terminals for <any!> and <except!(excepted_literals)>
+    /// * `stack_arena_capacity` - stack_arena_capacity is the temporary stack arena created when generating <except!(excepted_literals)>
     pub fn new(input: &str, vocabulary: Arc<Vocabulary>, stack_arena_capacity: usize) -> Arc<Self> {
         let except_present = utils::EXCEPTS_REGEX.is_match(input);
         let any_present = input.contains(&format!("<{}>", utils::ANY_NONTERMINAL_NAME));
@@ -302,10 +310,12 @@ impl Grammar {
                         FxHashMap::default();
                     match temp_machine.all_possible_next_tokens(None) {
                         PossibleTokensResult::Continue(tokens) => {
-                            let iter =
-                                utils::get_tokens_from_token_ids(tokens, &vocabulary.id_to_token_string)
-                                    .map(|x| x.to_string())
-                                    .collect_vec();
+                            let iter = utils::get_tokens_from_token_ids(
+                                tokens,
+                                &vocabulary.id_to_token_string,
+                            )
+                            .map(|x| x.to_string())
+                            .collect_vec();
                             add_tokens(
                                 &mut simplified_grammar,
                                 &mut mut_grammar.terminals_trie,

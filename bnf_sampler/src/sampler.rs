@@ -44,12 +44,12 @@ enum AcceptTokensResult {
     End,
     Failed,
 }
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Eq)]
 pub enum PossibleTokensResult<'a> {
     /// contains all possible token ids
     Continue(&'a BitSet<u32>),
     End,
-    InputTokensRejected,
+    InputTokenRejected,
 }
 
 #[derive(Debug)]
@@ -157,6 +157,15 @@ impl std::fmt::Display for Sampler {
 }
 
 impl Sampler {
+    /// Create a new grammar.
+    ///
+    /// # Arguments
+    ///
+    /// * `grammar` - the grammar for this sampler
+    /// * `start_nonterminal` - the starting point of the BNF schema
+    /// * `vocabulary` - the vocabulary for this sampler
+    /// * `stack_arena_capacity` - the arena capacity. This value depends on how long and complex the BNF schema is, and the maximum token length in bytes.
+    /// * `stack_to_bytes_cache_enabled` - a cache that speeds up certain types of except!(excepted_literals) when the BNF schema is not very long.
     pub fn new(
         grammar: Arc<Grammar>,
         start_nonterminal: String,
@@ -198,7 +207,7 @@ impl Sampler {
         self.token_ids.clear();
         match self.accept_a_token(input_token_id) {
             AcceptTokensResult::End => PossibleTokensResult::End,
-            AcceptTokensResult::Failed => PossibleTokensResult::InputTokensRejected,
+            AcceptTokensResult::Failed => PossibleTokensResult::InputTokenRejected,
             AcceptTokensResult::Continue => {
                 let mut cached_node_id = FxHashSet::default();
                 for stack in self.stacks.iter() {

@@ -90,7 +90,7 @@ fn main() {
                     utils::get_tokens_from_token_ids(result, &vocabulary.id_to_token_string)
                         .collect()
                 }
-                PossibleTokensResult::InputTokensRejected => {
+                PossibleTokensResult::InputTokenRejected => {
                     println!("Invalid input.");
                     break;
                 }
