@@ -310,12 +310,10 @@ impl Grammar {
                         FxHashMap::default();
                     match temp_machine.all_possible_next_tokens(None) {
                         PossibleTokensResult::Continue(tokens) => {
-                            let iter = utils::get_tokens_from_token_ids(
-                                tokens,
-                                &vocabulary.id_to_token_string,
-                            )
-                            .map(|x| x.to_string())
-                            .collect_vec();
+                            let iter = vocabulary
+                                .get_token_strings_from_token_ids(tokens)
+                                .map(|x| x.to_string())
+                                .collect_vec();
                             add_tokens(
                                 &mut simplified_grammar,
                                 &mut mut_grammar.terminals_trie,

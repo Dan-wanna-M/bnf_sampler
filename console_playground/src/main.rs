@@ -20,7 +20,7 @@ struct Args {
     /// set the arena capacity.
     #[arg(short, long, default_value_t = 1024*1024)]
     arena_capacity: usize,
-    /// set the temp arena capacity used to expand each except!([nonterminal]).
+    /// set the temp arena capacity used to expand each except!(excepted_literals).
     #[arg(short, long, default_value_t = 1024)]
     temp_arena_capacity: usize,
     /// enable stack to bytes cache. When a nonterminal directly expands to a lot of nonterminals and terminals, it may be slow.
@@ -50,8 +50,9 @@ fn main() {
     }
 
     if let PossibleTokensResult::Continue(result) = machine.all_possible_next_tokens(None) {
-        let result: Vec<&str> =
-            utils::get_tokens_from_token_ids(result, &vocabulary.id_to_token_string).collect();
+        let result: Vec<&str> = vocabulary
+            .get_token_strings_from_token_ids(result)
+            .collect();
         if args.possible_tokens_display {
             println!("Possible tokens: {:?}", result);
         }
@@ -86,10 +87,9 @@ fn main() {
             times.push(end.as_secs_f64());
             println!("Time used: {:?}", end);
             let result: Vec<&str> = match result {
-                PossibleTokensResult::Continue(result) => {
-                    utils::get_tokens_from_token_ids(result, &vocabulary.id_to_token_string)
-                        .collect()
-                }
+                PossibleTokensResult::Continue(result) => vocabulary
+                    .get_token_strings_from_token_ids(result)
+                    .collect(),
                 PossibleTokensResult::InputTokenRejected => {
                     println!("Invalid input.");
                     break;

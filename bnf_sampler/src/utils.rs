@@ -1,4 +1,3 @@
-use bit_set::BitSet;
 use lazy_static::lazy_static;
 use qp_trie::Trie;
 use regex::Regex;
@@ -27,7 +26,7 @@ pub(crate) fn extract_excepted<'a>(regex: &Regex, except_nonterminal: &'a str) -
     Some(regex.captures(except_nonterminal)?.extract::<1>().1[0])
 }
 #[derive(PartialEq, Clone, Debug, Copy, Eq)]
-pub struct NonterminalID(pub usize);
+pub(crate) struct NonterminalID(pub usize);
 
 impl std::hash::Hash for NonterminalID {
     #[inline]
@@ -84,19 +83,12 @@ impl<'a> qp_trie::Break for SliceU8Wrapper<'a> {
         &self.0[..loc]
     }
 }
-pub fn get_tokens_from_token_ids<'a>(
-    token_ids: &'a BitSet,
-    token_id_to_token: &'a FxHashMap<u32, String>,
-) -> impl Iterator<Item = &'a str> {
-    token_ids
-        .iter()
-        .map(|x| token_id_to_token[&(x as u32)].as_str())
-}
+
 /// Read the vocabulary from RWKV-world model series vocabulary file
 pub fn read_rwkv_world_vocab(file_name: &str) -> Arc<Vocabulary> {
     let file = File::open(file_name).unwrap();
     let reader = BufReader::new(file);
-    let mut id_to_token: FxHashMap<u32, Vec<u8>> =  FxHashMap::default();
+    let mut id_to_token: FxHashMap<u32, Vec<u8>> = FxHashMap::default();
     let mut id_to_token_string: FxHashMap<u32, String> = FxHashMap::default();
     let mut token_to_id = Trie::<VecU8Wrapper, u32>::new();
     for line in reader.lines() {
@@ -127,25 +119,28 @@ pub fn read_rwkv_world_vocab(file_name: &str) -> Arc<Vocabulary> {
     Arc::new(Vocabulary {
         token_to_id,
         id_to_token_string,
-        id_to_token
+        id_to_token,
     })
 }
 
+/// translated from <https://github.com/npk48/rwkv_cuda/blob/main/tokenizer.hpp#L166>
+///
+/// sequence need to be unescaped:
+///
+///     "\\symbol", ["\\", "symbol"]
+///
+///     "\\",       ["\\"]
+///
+///     "\\t",      ["\\", "t"]
+///
+///     "\\n",      ["\\", "n"]
+///
+///     "\\r",      ["\\", "r"]
+///
+///     "\\x12",    ["\\", "x", "1", "2"]
+///
+///     "\\u1234",  ["\\", "u", "1", "2", "3", "4"]
 pub fn fix_utf8_escape(token: &str) -> Vec<u8> {
-    /*
-        translated from https://github.com/npk48/rwkv_cuda/blob/main/tokenizer.hpp#L166
-        sequence need to be unescaped
-        [
-            "\\symbol", ["\\", "symbol"]
-            "\\",       ["\\"]
-            "\\t",      ["\\", "t"]
-            "\\n",      ["\\", "n"]
-            "\\r",      ["\\", "r"]
-            "\\x12",    ["\\", "x", "1", "2"]
-            "\\u1234",  ["\\", "u", "1", "2", "3", "4"]
-        ]
-    */
-
     let mut result: Vec<u8> = Vec::new();
     result.reserve(token.as_bytes().len());
     let mut token = token;

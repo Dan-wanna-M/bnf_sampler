@@ -48,6 +48,7 @@ enum AcceptTokensResult {
 pub enum PossibleTokensResult<'a> {
     /// contains all possible token ids
     Continue(&'a BitSet<u32>),
+    /// the sampler successfully terminates
     End,
     InputTokenRejected,
 }
