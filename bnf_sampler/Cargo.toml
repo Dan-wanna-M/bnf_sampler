@@ -2,7 +2,7 @@
 name = "bnf_sampler"
 version = "0.1.2"
 edition = "2021"
-license = "Apache-2.0"
+license = "MIT OR Apache-2.0"
 description = "A crate that uses recursive descent algorithm to ensure tokens produced by a large language model follow a Backus Naur Form schema."
 repository = "https://github.com/Dan-wanna-M/bnf_sampler"
 readme = "../README.md"

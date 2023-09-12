@@ -1,35 +1,35 @@
-use bit_set::BitSet;
+use lazy_static::lazy_static;
 use qp_trie::Trie;
 use regex::Regex;
 use rustc_hash::FxHashMap;
 use std::borrow::Borrow;
 use std::fs::File;
 use std::io::{prelude::*, BufReader};
-use lazy_static::lazy_static;
+use std::sync::Arc;
 
-pub static ANY_NONTERMINAL_NAME: &str = "any!";
+use crate::vocabulary::Vocabulary;
+
+pub(crate) static ANY_NONTERMINAL_NAME: &str = "any!";
 lazy_static! {
-    pub static ref EXCEPT_LITERAL_REGEX: Regex =
+    pub(crate) static ref EXCEPT_LITERAL_REGEX: Regex =
         Regex::new("except!\\(['\"](.+?)['\"]\\)").unwrap();
 }
 lazy_static! {
-    pub static ref EXCEPT_NONTERMINAL_REGEX: Regex =
+    pub(crate) static ref EXCEPT_NONTERMINAL_REGEX: Regex =
         Regex::new("except!\\(\\[(.+?)\\]\\)").unwrap();
 }
 lazy_static! {
-    pub static ref EXCEPTS_REGEX: Regex =
+    pub(crate) static ref EXCEPTS_REGEX: Regex =
         Regex::new("except!\\(['\"](.+?)['\"]\\)|except!\\(\\[(.+?)\\]\\)").unwrap();
 }
-pub fn extract_excepted<'a>(regex: &Regex, except_nonterminal: &'a str) -> Option<&'a str> {
-    Some(regex
-        .captures(except_nonterminal)?
-        .extract::<1>()
-        .1[0])
+pub(crate) fn extract_excepted<'a>(regex: &Regex, except_nonterminal: &'a str) -> Option<&'a str> {
+    Some(regex.captures(except_nonterminal)?.extract::<1>().1[0])
 }
 #[derive(PartialEq, Clone, Debug, Copy, Eq)]
-pub struct NonterminalID(pub usize);
+pub(crate) struct NonterminalID(pub usize);
 
 impl std::hash::Hash for NonterminalID {
+    #[inline]
     fn hash<H: std::hash::Hasher>(&self, hasher: &mut H) {
         hasher.write_usize(self.0)
     }
@@ -37,7 +37,7 @@ impl std::hash::Hash for NonterminalID {
 impl nohash_hasher::IsEnabled for NonterminalID {}
 
 #[derive(PartialEq, Clone, Debug, Eq, Hash)]
-pub struct VecU8Wrapper(pub(crate) Vec<u8>);
+pub struct VecU8Wrapper(pub Vec<u8>);
 
 impl Borrow<[u8]> for VecU8Wrapper {
     #[inline]
@@ -83,16 +83,14 @@ impl<'a> qp_trie::Break for SliceU8Wrapper<'a> {
         &self.0[..loc]
     }
 }
-pub fn get_tokens_from_token_ids<'a>(token_ids: &'a BitSet, token_id_to_token: &'a FxHashMap<u32, String>)->impl Iterator<Item = &'a str>
-{
-    token_ids.iter().map(|x| token_id_to_token[&(x as u32)].as_str())
-}
 
-pub fn read_world_vocab(file_name: &str) -> (Trie<VecU8Wrapper, u32>, FxHashMap<u32, String>) {
+/// Read the vocabulary from RWKV-world model series vocabulary file
+pub fn read_rwkv_world_vocab(file_name: &str) -> Arc<Vocabulary> {
     let file = File::open(file_name).unwrap();
     let reader = BufReader::new(file);
-    let mut map: FxHashMap<u32, String> = FxHashMap::default();
-    let mut tree = Trie::<VecU8Wrapper, u32>::new();
+    let mut id_to_token: FxHashMap<u32, Vec<u8>> = FxHashMap::default();
+    let mut id_to_token_string: FxHashMap<u32, String> = FxHashMap::default();
+    let mut token_to_id = Trie::<VecU8Wrapper, u32>::new();
     for line in reader.lines() {
         let line = line.unwrap();
         let mut start = line.find(' ').unwrap_or_else(|| {
@@ -113,28 +111,36 @@ pub fn read_world_vocab(file_name: &str) -> (Trie<VecU8Wrapper, u32>, FxHashMap<
         }
         // println!("token: {}",&line[start..end]);
         let token = fix_utf8_escape(&line[start..end]);
-        tree.insert(VecU8Wrapper(token.clone()), token_id);
+        token_to_id.insert(VecU8Wrapper(token.clone()), token_id);
+        id_to_token.insert(token_id, token);
         // println!("{:?}", String::from_utf8(token.clone()));
-        map.insert(token_id, String::from_utf8_lossy(&token).to_string());
+        id_to_token_string.insert(token_id, line[start..end].to_string());
     }
-    (tree, map)
+    Arc::new(Vocabulary {
+        token_to_id,
+        id_to_token_string,
+        id_to_token,
+    })
 }
 
+/// translated from <https://github.com/npk48/rwkv_cuda/blob/main/tokenizer.hpp#L166>
+///
+/// sequence need to be unescaped:
+///
+///     "\\symbol", ["\\", "symbol"]
+///
+///     "\\",       ["\\"]
+///
+///     "\\t",      ["\\", "t"]
+///
+///     "\\n",      ["\\", "n"]
+///
+///     "\\r",      ["\\", "r"]
+///
+///     "\\x12",    ["\\", "x", "1", "2"]
+///
+///     "\\u1234",  ["\\", "u", "1", "2", "3", "4"]
 pub fn fix_utf8_escape(token: &str) -> Vec<u8> {
-    /*
-        translated from https://github.com/npk48/rwkv_cuda/blob/main/tokenizer.hpp#L166
-        sequence need to be unescaped
-        [
-            "\\symbol", ["\\", "symbol"]
-            "\\",       ["\\"]
-            "\\t",      ["\\", "t"]
-            "\\n",      ["\\", "n"]
-            "\\r",      ["\\", "r"]
-            "\\x12",    ["\\", "x", "1", "2"]
-            "\\u1234",  ["\\", "u", "1", "2", "3", "4"]
-        ]
-    */
-
     let mut result: Vec<u8> = Vec::new();
     result.reserve(token.as_bytes().len());
     let mut token = token;

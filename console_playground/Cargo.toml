@@ -7,3 +7,4 @@ edition = "2021"
 
 [dependencies]
 bnf_sampler = { path = "../bnf_sampler" }
+clap = { version = "4.4.2", features = ["derive"] }

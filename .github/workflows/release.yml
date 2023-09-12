@@ -15,13 +15,12 @@ env:
   EXAMPLE_BINS: console_playground
 
   # Space separated paths to include in the archive.
-  RELEASE_ADDS: README.md LICENSE
+  RELEASE_ADDS: README.md LICENSE assets
 
 jobs:
   build:
     name: Build artifacts
     runs-on: ${{ matrix.os }}
-    permissions: write-all
     environment: dev
     strategy:
       matrix:
@@ -97,11 +96,12 @@ jobs:
       - name: Create tarball (MacOS)
         if: matrix.build == 'macos'
         run: |
-          for bin in $${{ env.EXAMPLE_BINS }}
+          for bin in ${{ env.EXAMPLE_BINS }}
           do
             mv ./target/release/${bin} ./dist/${bin}
           done
           mv ${{ env.RELEASE_ADDS }} ./dist
+          echo $(ls ./dist)
           7z a -tzip ./${{ env.RELEASE_DIR }}/${{ env.RELEASE_BIN }}-${{ steps.get_version.outputs.VERSION }}-${{ env.MACOS_TARGET }}.zip ./dist
       - name: Upload Zip
         uses: actions/upload-artifact@v1
@@ -112,7 +112,6 @@ jobs:
   release:
     name: GitHub Release
     needs: build
-    permissions: write-all
     runs-on: ubuntu-latest
     steps:
       - name: Query version number
@@ -125,7 +124,7 @@ jobs:
         id: create_release
         uses: actions/create-release@v1
         env:
-          GITHUB_TOKEN: ${{ secrets.PAT }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tag_name: ${{ steps.get_version.outputs.VERSION }}
           release_name: ${{ steps.get_version.outputs.VERSION }}

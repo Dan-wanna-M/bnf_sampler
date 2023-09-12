@@ -72,7 +72,7 @@ impl TerminalsTrie {
                 negative_bytes_index: None,
                 value: None,
                 children: HashMap::default(),
-                can_stop
+                can_stop,
             },
         ));
         for i in terminal {
@@ -84,10 +84,10 @@ impl TerminalsTrie {
                         &mut self.arena,
                         TrieNode {
                             index,
-                            negative_bytes_index:None,
+                            negative_bytes_index: None,
                             value: None,
                             children: HashMap::default(),
-                            can_stop
+                            can_stop,
                         },
                     );
                     self.get_mut(current_node_id).append(*i, new_node_id);
@@ -103,8 +103,8 @@ impl TerminalsTrie {
         self.get_mut(current_node_id).value = Some(temp.into_boxed_slice());
     }
 
-    pub fn except_terminal(&mut self, terminal: &[u8], nonterminal_id: NonterminalID) {
-        fn _except_terminal(
+    pub fn except_literal(&mut self, terminal: &[u8], nonterminal_id: NonterminalID) {
+        fn _except_literal(
             this: &mut TerminalsTrie,
             current_node_id: TrieNodeID,
             terminal: &[u8],
@@ -115,28 +115,32 @@ impl TerminalsTrie {
                 index = 0;
             }
             let current_node = this.get(current_node_id);
-            for (k, v) in current_node.children.iter().map(|(k,v)|(*k,*v)).collect_vec() {
+            for (k, v) in current_node
+                .children
+                .iter()
+                .map(|(k, v)| (*k, *v))
+                .collect_vec()
+            {
                 if terminal[index] == k {
-                    _except_terminal(this, v, terminal, index + 1);
+                    _except_literal(this, v, terminal, index + 1);
                 } else if terminal[0] == k {
-                    _except_terminal(this, v, terminal, 1);
+                    _except_literal(this, v, terminal, 1);
                 } else {
-                    _except_terminal(this, v, terminal, 0);
+                    _except_literal(this, v, terminal, 0);
                 }
             }
         }
-        _except_terminal(self, self.roots[&nonterminal_id], terminal, 0);
+        _except_literal(self, self.roots[&nonterminal_id], terminal, 0);
     }
-    /*
+
     pub fn iter(&self, start_node_id: TrieNodeID) -> TerminalsTrieIter {
         let stack = vec![self.get(start_node_id).children.iter()];
         return TerminalsTrieIter {
             trie: self,
-            initial_index: self.get(start_node_id).index,
+            initial_index: self.get(start_node_id).index as usize,
             stack,
         };
     }
-    */
 }
 #[derive(PartialEq, Clone, Debug, Copy, Eq, Hash)]
 pub struct TrieNodeID {
@@ -145,7 +149,7 @@ pub struct TrieNodeID {
 #[derive(Clone, Debug)]
 pub(crate) struct TrieNode {
     pub index: u16,
-    pub can_stop:bool,
+    pub can_stop: bool,
     pub negative_bytes_index: Option<u16>,
     pub value: Option<Box<[u8]>>,
     pub children: HashMap<u8, TrieNodeID, BuildNoHashHasher<u8>>,
