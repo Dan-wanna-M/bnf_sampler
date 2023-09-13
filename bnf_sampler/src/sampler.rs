@@ -51,7 +51,7 @@ pub struct Sampler {
     stack_to_bytes_cache_enabled: bool,
 }
 #[derive(Debug, PartialEq, Clone, Copy)]
-enum AcceptTokensResult {
+pub enum AcceptTokenResult {
     Continue,
     End,
     Failed,
@@ -220,9 +220,9 @@ impl Sampler {
         // let now = Instant::now();
         self.token_ids.clear();
         match self.accept_a_token(input_token_id) {
-            AcceptTokensResult::End => PossibleTokensResult::End,
-            AcceptTokensResult::Failed => PossibleTokensResult::InputTokenRejected,
-            AcceptTokensResult::Continue => {
+            AcceptTokenResult::End => PossibleTokensResult::End,
+            AcceptTokenResult::Failed => PossibleTokensResult::InputTokenRejected,
+            AcceptTokenResult::Continue => {
                 let mut cached_node_id = FxHashSet::default();
                 for stack in self.stacks.iter() {
                     if let StackItem::Terminals(node_id) =
@@ -317,7 +317,7 @@ impl Sampler {
         }
     }
     #[must_use]
-    fn accept_a_token(&mut self, token_id: Option<u32>) -> AcceptTokensResult {
+    pub fn accept_a_token(&mut self, token_id: Option<u32>) -> AcceptTokenResult {
         let mut find_stacks_matching_bytes = |bytes| {
             let len = self.stacks.len();
             let mut accepted = false;
@@ -370,18 +370,18 @@ impl Sampler {
             }
             if accepted {
                 if self.stacks.is_empty() || self.stacks.iter().all(|x| x.is_empty()) {
-                    return AcceptTokensResult::End;
+                    return AcceptTokenResult::End;
                 }
-                AcceptTokensResult::Continue
+                AcceptTokenResult::Continue
             } else {
-                AcceptTokensResult::Failed
+                AcceptTokenResult::Failed
             }
         };
         let result;
         let bytes = token_id.map(|id| self.vocabulary.id_to_token[&id].as_slice());
         if bytes.is_some() {
             result = find_stacks_matching_bytes(bytes);
-            if result == AcceptTokensResult::Failed || result == AcceptTokensResult::End {
+            if result == AcceptTokenResult::Failed || result == AcceptTokenResult::End {
                 return result;
             }
         }
