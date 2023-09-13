@@ -22,13 +22,10 @@ const INVALID_INDEX: i32 = -1;
 #[derive(PartialEq, Clone, Debug, Copy, Eq, Hash)]
 struct ConstU8SlicePtr(*const [u8]);
 
-unsafe impl Send for ConstU8SlicePtr {
-    
-}
+unsafe impl Send for ConstU8SlicePtr {}
 
 impl ConstU8SlicePtr {
-    pub unsafe fn get(&self)->&'static [u8]
-    {
+    pub unsafe fn get(&self) -> &'static [u8] {
         &*self.0
     }
 }
@@ -103,7 +100,8 @@ impl<'a> BufferOrTreeIter<'a> {
     ) -> Self {
         let tokens_buffer_iter = match current_top {
             StackItem::Terminal(terminal) => TokensIterType::SinglePrefix(
-                tokens_tree.iter_prefix(tokens_tree.longest_common_prefix(unsafe { terminal.get() })),
+                tokens_tree
+                    .iter_prefix(tokens_tree.longest_common_prefix(unsafe { terminal.get() })),
             ),
             StackItem::Terminals(node_id) => {
                 let node = trie.get(node_id);
@@ -426,7 +424,9 @@ impl Sampler {
                             result.push(BytesMatchResult {
                                 remaining_bytes_start: INVALID_INDEX,
                                 stack_offset: stack_offset as u32,
-                                modified_item_at_offset: Some(StackItem::Terminal(ConstU8SlicePtr(&terminal[i..]))),
+                                modified_item_at_offset: Some(StackItem::Terminal(
+                                    ConstU8SlicePtr(&terminal[i..]),
+                                )),
                             });
                             return;
                         }
