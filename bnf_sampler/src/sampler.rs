@@ -24,6 +24,8 @@ struct ConstU8SlicePtr(*const [u8]);
 
 unsafe impl Send for ConstU8SlicePtr {}
 
+unsafe impl Sync for ConstU8SlicePtr {}
+
 impl ConstU8SlicePtr {
     pub unsafe fn get(&self) -> &'static [u8] {
         &*self.0
