@@ -19,11 +19,24 @@ use std::sync::Arc;
 use std::vec;
 
 const INVALID_INDEX: i32 = -1;
+#[derive(PartialEq, Clone, Debug, Copy, Eq, Hash)]
+struct ConstU8SlicePtr(*const [u8]);
+
+unsafe impl Send for ConstU8SlicePtr {
+    
+}
+
+impl ConstU8SlicePtr {
+    pub unsafe fn get(&self)->&'static [u8]
+    {
+        &*self.0
+    }
+}
 
 #[derive(PartialEq, Clone, Debug, Copy, Eq, Hash)]
 enum StackItem {
     Nonterminal(NonterminalID),
-    Terminal(*const [u8]),
+    Terminal(ConstU8SlicePtr),
     Terminals(TrieNodeID),
 }
 #[derive(Clone, Debug)]
@@ -90,7 +103,7 @@ impl<'a> BufferOrTreeIter<'a> {
     ) -> Self {
         let tokens_buffer_iter = match current_top {
             StackItem::Terminal(terminal) => TokensIterType::SinglePrefix(
-                tokens_tree.iter_prefix(tokens_tree.longest_common_prefix(unsafe { &*terminal })),
+                tokens_tree.iter_prefix(tokens_tree.longest_common_prefix(unsafe { terminal.get() })),
             ),
             StackItem::Terminals(node_id) => {
                 let node = trie.get(node_id);
@@ -406,14 +419,14 @@ impl Sampler {
                     }
                 }
                 StackItem::Terminal(terminal) => {
-                    let terminal = unsafe { &*terminal };
+                    let terminal = unsafe { terminal.get() };
                     for i in 0..terminal.len() {
                         if bytes.len() == i + bytes_index {
                             *found = true;
                             result.push(BytesMatchResult {
                                 remaining_bytes_start: INVALID_INDEX,
                                 stack_offset: stack_offset as u32,
-                                modified_item_at_offset: Some(StackItem::Terminal(&terminal[i..])),
+                                modified_item_at_offset: Some(StackItem::Terminal(ConstU8SlicePtr(&terminal[i..]))),
                             });
                             return;
                         }
@@ -586,7 +599,7 @@ impl Sampler {
                             for term in expression.iter().rev() {
                                 temp_stack.push(match term {
                                     U8Term::Terminal(value) => {
-                                        StackItem::Terminal(value.as_slice())
+                                        StackItem::Terminal(ConstU8SlicePtr(value.as_slice()))
                                     }
                                     U8Term::Nonterminal(value) => StackItem::Nonterminal(
                                         grammar.nonterminal_to_terminal_id[value],
