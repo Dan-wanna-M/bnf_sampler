@@ -1,5 +1,5 @@
 use bnf_sampler::sampler::{PossibleTokensResult, Sampler};
-use bnf_sampler::utils::VecU8Wrapper;
+use bnf_sampler::utils::U8ArrayWrapper;
 use bnf_sampler::{grammar, utils};
 use clap::Parser;
 use std::time::Instant;
@@ -71,7 +71,9 @@ fn main() {
         if args.input_display {
             println!("Input: {:?}", input);
         }
-        let token_id = vocabulary.token_to_id.get(&VecU8Wrapper(input.clone()));
+        let token_id = vocabulary
+            .token_to_id
+            .get(&U8ArrayWrapper(input.clone().into()));
         if token_id.is_none() {
             println!(
                 "Invalid token that does not correspond to any token id: {:?}",

@@ -37,16 +37,16 @@ impl std::hash::Hash for NonterminalID {
 impl nohash_hasher::IsEnabled for NonterminalID {}
 
 #[derive(PartialEq, Clone, Debug, Eq, Hash)]
-pub struct VecU8Wrapper(pub Vec<u8>);
+pub struct U8ArrayWrapper(pub Box<[u8]>);
 
-impl Borrow<[u8]> for VecU8Wrapper {
+impl Borrow<[u8]> for U8ArrayWrapper {
     #[inline]
     fn borrow(&self) -> &[u8] {
-        self.0.as_slice()
+        &self.0
     }
 }
 
-impl qp_trie::Break for VecU8Wrapper {
+impl qp_trie::Break for U8ArrayWrapper {
     type Split = [u8];
 
     #[inline]
@@ -90,7 +90,7 @@ pub fn read_rwkv_world_vocab(file_name: &str) -> Arc<Vocabulary> {
     let reader = BufReader::new(file);
     let mut id_to_token: FxHashMap<u32, Vec<u8>> = FxHashMap::default();
     let mut id_to_token_string: FxHashMap<u32, String> = FxHashMap::default();
-    let mut token_to_id = Trie::<VecU8Wrapper, u32>::new();
+    let mut token_to_id = Trie::<U8ArrayWrapper, u32>::new();
     for line in reader.lines() {
         let line = line.unwrap();
         let mut start = line.find(' ').unwrap_or_else(|| {
@@ -111,8 +111,8 @@ pub fn read_rwkv_world_vocab(file_name: &str) -> Arc<Vocabulary> {
         }
         // println!("token: {}",&line[start..end]);
         let token = fix_utf8_escape(&line[start..end]);
-        token_to_id.insert(VecU8Wrapper(token.clone()), token_id);
-        id_to_token.insert(token_id, token);
+        id_to_token.insert(token_id, token.clone());
+        token_to_id.insert(U8ArrayWrapper(token.into()), token_id);
         // println!("{:?}", String::from_utf8(token.clone()));
         id_to_token_string.insert(token_id, line[start..end].to_string());
     }

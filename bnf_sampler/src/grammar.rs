@@ -6,7 +6,7 @@ use crate::trie::TerminalsTrie;
 use crate::trie::TrieNodeID;
 use crate::utils;
 use crate::utils::NonterminalID;
-use crate::utils::VecU8Wrapper;
+use crate::utils::U8ArrayWrapper;
 use crate::vocabulary::Vocabulary;
 use bit_set::BitSet;
 use bnf::Production;
@@ -115,12 +115,11 @@ impl Grammar {
                           nonterminal: &str,
                           excepted_literal: Option<&Vec<&[u8]>>| {
             simplified_grammar.remove(nonterminal);
-            let predicate = |haystack: &&VecU8Wrapper| {
+            let predicate = |haystack: &&U8ArrayWrapper| {
                 excepted_literal.is_none()
                     || excepted_literal.is_some_and(|x| {
                         x.iter().all(|x| {
-                            return haystack.0 != *x
-                                && memmem::find(haystack.0.as_slice(), x).is_none();
+                            &haystack.0[..] != *x && memmem::find(&haystack.0, x).is_none()
                         })
                     })
             };
@@ -132,15 +131,11 @@ impl Grammar {
                             .token_to_id
                             .keys()
                             .filter(|x| predicate(x))
-                            .map(|k| vec![U8Term::Terminal(k.0.clone())])
+                            .map(|k| vec![U8Term::Terminal(k.0.to_vec())])
                             .collect(),
                     );
                     for (key, _) in vocabulary.token_to_id.iter() {
-                        terminals_arena.add(
-                            key.0.as_slice(),
-                            nonterminal_to_terminal_id[nonterminal],
-                            false,
-                        )
+                        terminals_arena.add(&key.0, nonterminal_to_terminal_id[nonterminal], false)
                     }
                     let mut bit_set = BitSet::new();
                     bit_set.extend(vocabulary.token_to_id.iter().filter_map(|(k, token_id)| {
@@ -160,17 +155,13 @@ impl Grammar {
                         vocabulary
                             .token_to_id
                             .keys()
-                            .map(|k| vec![U8Term::Terminal(k.0.clone())])
+                            .map(|k| vec![U8Term::Terminal(k.0.to_vec())])
                             .collect(),
                     );
                     let mut bit_set = BitSet::new();
                     for (key, token_id) in vocabulary.token_to_id.iter() {
                         bit_set.insert((*token_id) as usize);
-                        terminals_arena.add(
-                            key.0.as_slice(),
-                            nonterminal_to_terminal_id[nonterminal],
-                            false,
-                        )
+                        terminals_arena.add(&key.0, nonterminal_to_terminal_id[nonterminal], false)
                     }
                     nonterminal_to_token_ids
                         .insert(nonterminal_to_terminal_id[nonterminal], bit_set);

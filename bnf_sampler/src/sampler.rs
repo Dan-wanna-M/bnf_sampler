@@ -8,7 +8,7 @@ use crate::trie::TerminalsTrieIter;
 use crate::trie::TrieNodeID;
 use crate::utils::NonterminalID;
 use crate::utils::SliceU8Wrapper;
-use crate::utils::VecU8Wrapper;
+use crate::utils::U8ArrayWrapper;
 use crate::vocabulary::Vocabulary;
 use bit_set::BitSet;
 use qp_trie::Trie;
@@ -42,7 +42,7 @@ enum StackItem {
 pub struct Sampler {
     stacks: Vec<Vec<StackItem>>,
     grammar: Arc<Grammar>,
-    tokens_buffer: Vec<(VecU8Wrapper, u32)>,
+    tokens_buffer: Vec<(U8ArrayWrapper, u32)>,
     vocabulary: Arc<Vocabulary>,
     stack_arena: BufferArena<StackItem>,
     stacks_to_token_ids: FxHashMap<Vec<Vec<StackItem>>, BitSet<u32>>,
@@ -78,25 +78,25 @@ struct BytesMatchResult {
 }
 
 enum TokensIterType<'a> {
-    Flat(std::slice::Iter<'a, (VecU8Wrapper, u32)>),
-    SinglePrefix(qp_trie::Iter<'a, VecU8Wrapper, u32>),
+    Flat(std::slice::Iter<'a, (U8ArrayWrapper, u32)>),
+    SinglePrefix(qp_trie::Iter<'a, U8ArrayWrapper, u32>),
     MultiplePrefixs(
         (
             TerminalsTrieIter<'a>,
-            Option<qp_trie::Iter<'a, VecU8Wrapper, u32>>,
+            Option<qp_trie::Iter<'a, U8ArrayWrapper, u32>>,
         ),
     ),
 }
 
 struct BufferOrTreeIter<'a> {
     tokens_buffer_iter: TokensIterType<'a>,
-    tokens_tree: &'a Trie<VecU8Wrapper, u32>,
+    tokens_tree: &'a Trie<U8ArrayWrapper, u32>,
 }
 
 impl<'a> BufferOrTreeIter<'a> {
     pub fn new(
-        tokens_buffer: &'a [(VecU8Wrapper, u32)],
-        tokens_tree: &'a Trie<VecU8Wrapper, u32>,
+        tokens_buffer: &'a [(U8ArrayWrapper, u32)],
+        tokens_tree: &'a Trie<U8ArrayWrapper, u32>,
         trie: &'a TerminalsTrie,
         current_top: StackItem,
     ) -> Self {
@@ -123,7 +123,7 @@ impl<'a> BufferOrTreeIter<'a> {
 }
 
 impl<'a> Iterator for BufferOrTreeIter<'a> {
-    type Item = (&'a VecU8Wrapper, &'a u32);
+    type Item = (&'a U8ArrayWrapper, &'a u32);
 
     fn next(&mut self) -> Option<Self::Item> {
         let result;
@@ -266,8 +266,7 @@ impl Sampler {
                                 for (token, token_id) in iter {
                                     if self.token_ids.contains(*token_id as usize)
                                         || failed_prefixs.contains_key(
-                                            failed_prefixs
-                                                .longest_common_prefix(token.0.as_slice()),
+                                            failed_prefixs.longest_common_prefix(&token.0[..]),
                                         )
                                     {
                                         continue;
@@ -290,7 +289,7 @@ impl Sampler {
                                         arena,
                                         &mut temp_stack,
                                         &self.grammar,
-                                        Some(token.0.as_slice()),
+                                        Some(&token.0[..]),
                                         false,
                                         &mut cache,
                                         &mut |_, _| {},
