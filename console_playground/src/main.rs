@@ -37,7 +37,7 @@ fn main() {
     let input =
         fs::read_to_string("./assets/grammar.bnf").expect("./assets/grammar.bnf should exist.");
     let vocabulary = utils::read_rwkv_world_vocab("./assets/vocab.txt");
-    let grammar = grammar::Grammar::new(&input, vocabulary.clone(), args.temp_arena_capacity);
+    let grammar = grammar::Grammar::new(&input, vocabulary.clone(), args.temp_arena_capacity).unwrap();
     let mut machine = Sampler::new(
         grammar,
         args.start_nonterminal.clone(),

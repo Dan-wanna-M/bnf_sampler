@@ -1,6 +1,6 @@
 [package]
 name = "bnf_sampler"
-version = "0.2.4"
+version = "0.2.5"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 description = "A crate that uses recursive descent algorithm to ensure tokens produced by a large language model follow a Backus Naur Form schema."
@@ -19,3 +19,4 @@ nohash-hasher = "0.2.0"
 regex = "1.9.3"
 lazy_static = "1.4.0"
 memchr = "2.5.0"
+anyhow = "1.0.75"

@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use crate::sampler::PossibleTokensResult;
 use crate::sampler::Sampler;
 use crate::trie::TerminalsTrie;
@@ -8,6 +6,7 @@ use crate::utils;
 use crate::utils::NonterminalID;
 use crate::utils::U8ArrayWrapper;
 use crate::vocabulary::Vocabulary;
+use anyhow::{Error,ensure, anyhow};
 use bit_set::BitSet;
 use bnf::Production;
 use bnf::Term;
@@ -16,6 +15,7 @@ use memchr::memmem;
 use regex::Regex;
 use rustc_hash::FxHashMap;
 use rustc_hash::FxHashSet;
+use std::sync::Arc;
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub(crate) enum U8Term {
     Terminal(Vec<u8>),
@@ -43,10 +43,14 @@ impl Grammar {
     /// * `input` - the BNF schema in text format
     /// * `vocabulary` - vocabulary is used to generate terminals for <any!> and <except!(excepted_literals)>
     /// * `stack_arena_capacity` - stack_arena_capacity is the temporary stack arena created when generating <except!(excepted_literals)>
-    pub fn new(input: &str, vocabulary: Arc<Vocabulary>, stack_arena_capacity: usize) -> Arc<Self> {
+    pub fn new(
+        input: &str,
+        vocabulary: Arc<Vocabulary>,
+        stack_arena_capacity: usize,
+    ) -> Result<Arc<Self>, Error> {
         let except_present = utils::EXCEPTS_REGEX.is_match(input);
         let any_present = input.contains(&format!("<{}>", utils::ANY_NONTERMINAL_NAME));
-        let mut grammar: bnf::Grammar = input.parse().unwrap();
+        let mut grammar: bnf::Grammar = input.parse()?;
         if any_present {
             let mut any_prod = Production::new();
             any_prod.lhs = Term::Nonterminal(utils::ANY_NONTERMINAL_NAME.to_string());
@@ -178,14 +182,15 @@ impl Grammar {
                 None,
             );
         }
-        fn process_valid_excepts<F: FnOnce(&str)>(regex: &Regex, nonterminal: &str, process: F) {
+        fn process_valid_excepts<F: FnOnce(&str)->Result<(), Error>>(regex: &Regex, nonterminal: &str, process: F)->Result<(), Error> {
             let extracted = utils::extract_excepted(regex, nonterminal);
             if let Some(extracted) = extracted {
                 if extracted.is_empty() {
-                    panic!("{nonterminal} is invalid except!() nonterminal because the brackets contain nothing.");
+                    return Err(anyhow::anyhow!("{nonterminal} is invalid except!() nonterminal because the brackets contain nothing."));
                 }
-                process(extracted);
+                process(extracted)?;
             }
+            Ok(())
         }
         if except_present {
             for nonterminal in excepts.iter() {
@@ -201,7 +206,8 @@ impl Grammar {
                         Some(&vec![&bytes]),
                     );
                     terminals_arena.except_literal(&bytes, nonterminal_to_terminal_id[nonterminal]);
-                });
+                    Ok(())
+                })?;
             }
         }
         fn convert_u8terms_to_simplified_expressions(
@@ -279,11 +285,11 @@ impl Grammar {
         if except_present {
             for nonterminal in excepts.iter() {
                 process_valid_excepts(&utils::EXCEPT_NONTERMINAL_REGEX, nonterminal, |extracted| {
-                    assert!(
+                    ensure!(
                         mut_grammar
                             .nonterminal_to_terminal_id
                             .contains_key(extracted),
-                        "{extracted} is not a valid nonterminal."
+                        "except!([{extracted}]) is invalid because [{extracted}] is not a valid nonterminal."
                     );
                     // println!("{nonterminal}");
                     mut_grammar.nonterminal_to_terminal_id.insert(
@@ -332,12 +338,28 @@ impl Grammar {
                                 .nonterminal_id_to_expression
                                 .insert(new_k, new_v);
                             simplified_grammar.clear();
-                        }
-                        _ => panic!("{extracted} does not produce valid terminals."),
+                        },
+                        _ => return Err(anyhow!("except!([{extracted}]) is invalid because [{extracted}] does not produce valid terminals.")),
                     }
-                });
+                    Ok(())
+                })?;
             }
         }
-        grammar
+        for (_, v) in grammar.nonterminal_id_to_expression.iter() {
+            if let SimplifiedExpressions::Expressions(expressions) = v {
+                for terms in expressions {
+                    for term in terms {
+                        if let U8Term::Nonterminal(nonterminal) = term {
+                            grammar.nonterminal_to_terminal_id.get(nonterminal).ok_or(
+                                anyhow::anyhow!(
+                                    "Nonterminal string <{nonterminal}> is not defined."
+                                ),
+                            )?;
+                        }
+                    }
+                }
+            }
+        }
+        Ok(grammar)
     }
 }
