@@ -6,7 +6,7 @@ use crate::utils;
 use crate::utils::NonterminalID;
 use crate::utils::U8ArrayWrapper;
 use crate::vocabulary::Vocabulary;
-use anyhow::{Error,ensure, anyhow};
+use anyhow::{anyhow, ensure, Error};
 use bit_set::BitSet;
 use bnf::Production;
 use bnf::Term;
@@ -182,7 +182,11 @@ impl Grammar {
                 None,
             );
         }
-        fn process_valid_excepts<F: FnOnce(&str)->Result<(), Error>>(regex: &Regex, nonterminal: &str, process: F)->Result<(), Error> {
+        fn process_valid_excepts<F: FnOnce(&str) -> Result<(), Error>>(
+            regex: &Regex,
+            nonterminal: &str,
+            process: F,
+        ) -> Result<(), Error> {
             let extracted = utils::extract_excepted(regex, nonterminal);
             if let Some(extracted) = extracted {
                 if extracted.is_empty() {
@@ -284,28 +288,31 @@ impl Grammar {
         let mut_grammar = unsafe { &mut *(Arc::as_ptr(&grammar) as *mut Grammar) };
         if except_present {
             for nonterminal in excepts.iter() {
-                process_valid_excepts(&utils::EXCEPT_NONTERMINAL_REGEX, nonterminal, |extracted| {
-                    ensure!(
+                process_valid_excepts(
+                    &utils::EXCEPT_NONTERMINAL_REGEX,
+                    nonterminal,
+                    |extracted| {
+                        ensure!(
                         mut_grammar
                             .nonterminal_to_terminal_id
                             .contains_key(extracted),
                         "except!([{extracted}]) is invalid because [{extracted}] is not a valid nonterminal."
                     );
-                    // println!("{nonterminal}");
-                    mut_grammar.nonterminal_to_terminal_id.insert(
-                        nonterminal.to_string(),
-                        NonterminalID(grammar.nonterminal_id_to_expression.len()),
-                    );
-                    let mut temp_machine = Sampler::new(
-                        grammar.clone(),
-                        extracted.to_string(),
-                        vocabulary.clone(),
-                        stack_arena_capacity,
-                        false,
-                    )?;
-                    let mut simplified_grammar: FxHashMap<String, FxHashSet<Vec<U8Term>>> =
-                        FxHashMap::default();
-                    match temp_machine.all_possible_next_tokens(None)? {
+                        // println!("{nonterminal}");
+                        mut_grammar.nonterminal_to_terminal_id.insert(
+                            nonterminal.to_string(),
+                            NonterminalID(grammar.nonterminal_id_to_expression.len()),
+                        );
+                        let mut temp_machine = Sampler::new(
+                            grammar.clone(),
+                            extracted.to_string(),
+                            vocabulary.clone(),
+                            stack_arena_capacity,
+                            false,
+                        )?;
+                        let mut simplified_grammar: FxHashMap<String, FxHashSet<Vec<U8Term>>> =
+                            FxHashMap::default();
+                        match temp_machine.all_possible_next_tokens(None)? {
                         PossibleTokensResult::Continue(tokens) => {
                             let iter = vocabulary
                                 .get_token_strings_from_token_ids(tokens)
@@ -341,8 +348,9 @@ impl Grammar {
                         },
                         _ => return Err(anyhow!("except!([{extracted}]) is invalid because [{extracted}] does not produce valid terminals.")),
                     }
-                    Ok(())
-                })?;
+                        Ok(())
+                    },
+                )?;
             }
         }
         for (_, v) in grammar.nonterminal_id_to_expression.iter() {

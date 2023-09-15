@@ -10,9 +10,9 @@ use crate::utils::NonterminalID;
 use crate::utils::SliceU8Wrapper;
 use crate::utils::U8ArrayWrapper;
 use crate::vocabulary::Vocabulary;
+use anyhow::anyhow;
 use anyhow::Error;
 use anyhow::Ok;
-use anyhow::anyhow;
 use bit_set::BitSet;
 use qp_trie::Trie;
 use rustc_hash::FxHashMap;
@@ -192,7 +192,12 @@ impl Sampler {
         stack_to_bytes_cache_enabled: bool,
     ) -> Result<Self, Error> {
         let stacks = vec![vec![StackItem::Nonterminal(
-            *grammar.nonterminal_to_terminal_id.get(&start_nonterminal).ok_or(anyhow!("Start_nonterminal {start_nonterminal} is not defined in the BNF schema."))?,
+            *grammar
+                .nonterminal_to_terminal_id
+                .get(&start_nonterminal)
+                .ok_or(anyhow!(
+                    "Start_nonterminal {start_nonterminal} is not defined in the BNF schema."
+                ))?,
         )]];
         let token_ids: BitSet<u32> = BitSet::with_capacity(u16::MAX.into());
         let stacks_to_token_ids = FxHashMap::default();

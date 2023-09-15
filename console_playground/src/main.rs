@@ -37,19 +37,22 @@ fn main() {
     let input =
         fs::read_to_string("./assets/grammar.bnf").expect("./assets/grammar.bnf should exist.");
     let vocabulary = utils::read_rwkv_world_vocab("./assets/vocab.txt").unwrap();
-    let grammar = grammar::Grammar::new(&input, vocabulary.clone(), args.grammar_arena_capacity).unwrap();
+    let grammar =
+        grammar::Grammar::new(&input, vocabulary.clone(), args.grammar_arena_capacity).unwrap();
     let mut machine = Sampler::new(
         grammar,
         args.start_nonterminal.clone(),
         vocabulary.clone(),
         args.arena_capacity,
         args.bytes_cache,
-    ).unwrap();
+    )
+    .unwrap();
     if args.stacks_display {
         println!("Stacks: {}", machine);
     }
 
-    if let PossibleTokensResult::Continue(result) = machine.all_possible_next_tokens(None).unwrap() {
+    if let PossibleTokensResult::Continue(result) = machine.all_possible_next_tokens(None).unwrap()
+    {
         let result: Vec<&str> = vocabulary
             .get_token_strings_from_token_ids(result)
             .collect();

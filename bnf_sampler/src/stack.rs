@@ -1,5 +1,5 @@
+use anyhow::{ensure, Error};
 use std::ops::{Index, RangeTo};
-use anyhow::{Error, ensure};
 #[derive(Clone, Debug)]
 pub(crate) struct BufferArena<T: Clone + Copy> {
     arena: Vec<Option<T>>,
