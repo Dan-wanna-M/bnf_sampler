@@ -1,5 +1,5 @@
 use std::ops::{Index, RangeTo};
-
+use anyhow::{Error, ensure};
 #[derive(Clone, Debug)]
 pub(crate) struct BufferArena<T: Clone + Copy> {
     arena: Vec<Option<T>>,
@@ -16,16 +16,16 @@ impl<T: Clone + Copy> BufferArena<T> {
         }
     }
 
-    pub fn allocate_a_stack(&mut self, capacity: usize) -> FixedBuffer<T> {
-        assert!(
+    pub fn allocate_a_stack(&mut self, capacity: usize) -> Result<FixedBuffer<T>, Error> {
+        ensure!(
             self.current_ptr + capacity <= self.arena.len(),
-            "Not enough arena capacity: {} is smaller than {}. Set a larger --arena_capacity or temp_arena_capacity in the command line.",
+            "Not enough arena capacity: current capacity {} is smaller than requested capacity {}. Increase arena_capacity or grammar_arena_capacity.",
             self.arena.len(),
             self.current_ptr + capacity
         );
         let buffer = &mut self.arena[self.current_ptr..self.current_ptr + capacity];
         self.current_ptr += capacity;
-        FixedBuffer { buffer, top: 0 }
+        Ok(FixedBuffer { buffer, top: 0 })
     }
 
     pub fn clear(&mut self) {

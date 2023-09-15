@@ -302,10 +302,10 @@ impl Grammar {
                         vocabulary.clone(),
                         stack_arena_capacity,
                         false,
-                    );
+                    )?;
                     let mut simplified_grammar: FxHashMap<String, FxHashSet<Vec<U8Term>>> =
                         FxHashMap::default();
-                    match temp_machine.all_possible_next_tokens(None) {
+                    match temp_machine.all_possible_next_tokens(None)? {
                         PossibleTokensResult::Continue(tokens) => {
                             let iter = vocabulary
                                 .get_token_strings_from_token_ids(tokens)

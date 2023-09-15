@@ -10,10 +10,14 @@ use crate::utils::NonterminalID;
 use crate::utils::SliceU8Wrapper;
 use crate::utils::U8ArrayWrapper;
 use crate::vocabulary::Vocabulary;
+use anyhow::Error;
+use anyhow::Ok;
+use anyhow::anyhow;
 use bit_set::BitSet;
 use qp_trie::Trie;
 use rustc_hash::FxHashMap;
 use rustc_hash::FxHashSet;
+use std::collections::hash_map::Entry;
 use std::ptr::NonNull;
 use std::sync::Arc;
 use std::vec;
@@ -186,15 +190,15 @@ impl Sampler {
         vocabulary: Arc<Vocabulary>,
         stack_arena_capacity: usize,
         stack_to_bytes_cache_enabled: bool,
-    ) -> Self {
+    ) -> Result<Self, Error> {
         let stacks = vec![vec![StackItem::Nonterminal(
-            grammar.nonterminal_to_terminal_id[&start_nonterminal],
+            *grammar.nonterminal_to_terminal_id.get(&start_nonterminal).ok_or(anyhow!("Start_nonterminal {start_nonterminal} is not defined in the BNF schema."))?,
         )]];
         let token_ids: BitSet<u32> = BitSet::with_capacity(u16::MAX.into());
         let stacks_to_token_ids = FxHashMap::default();
         let tokens_buffer =
             Vec::from_iter(vocabulary.token_to_id.iter().map(|(k, v)| (k.clone(), *v)));
-        Sampler {
+        Ok(Sampler {
             stacks,
             grammar,
             vocabulary,
@@ -204,7 +208,7 @@ impl Sampler {
             stack_arena: BufferArena::with_capacity(stack_arena_capacity),
             stack_to_bytes_cache_enabled,
             start_nonterminal,
-        }
+        })
     }
 
     pub fn reset(&mut self) {
@@ -216,12 +220,12 @@ impl Sampler {
     pub fn all_possible_next_tokens(
         &mut self,
         input_token_id: Option<u32>,
-    ) -> PossibleTokensResult {
+    ) -> Result<PossibleTokensResult, Error> {
         // let now = Instant::now();
         self.token_ids.clear();
-        match self.accept_a_token(input_token_id) {
-            AcceptTokenResult::End => PossibleTokensResult::End,
-            AcceptTokenResult::Failed => PossibleTokensResult::InputTokenRejected,
+        match self.accept_a_token(input_token_id)? {
+            AcceptTokenResult::End => Ok(PossibleTokensResult::End),
+            AcceptTokenResult::Failed => Ok(PossibleTokensResult::InputTokenRejected),
             AcceptTokenResult::Continue => {
                 let mut cached_node_id = FxHashSet::default();
                 for stack in self.stacks.iter() {
@@ -246,77 +250,75 @@ impl Sampler {
                         }
                     }
                 }
-                PossibleTokensResult::Continue(
-                    self.stacks_to_token_ids
-                        .entry(self.stacks.clone())
-                        .or_insert_with(|| {
-                            let mut stack_to_bytes_cache: FxHashMap<
-                                (FixedBuffer<StackItem>, Box<[u8]>),
-                                bool,
-                            > = FxHashMap::default();
-                            for stack in self.stacks.iter() {
-                                // let now = Instant::now();
-                                let mut failed_prefixs: Trie<SliceU8Wrapper, ()> = Trie::new();
-                                let iter = BufferOrTreeIter::new(
-                                    &self.tokens_buffer,
-                                    &self.vocabulary.token_to_id,
-                                    &self.grammar.terminals_trie,
-                                    *stack.last().unwrap(),
-                                );
-                                for (token, token_id) in iter {
-                                    if self.token_ids.contains(*token_id as usize)
-                                        || failed_prefixs.contains_key(
-                                            failed_prefixs.longest_common_prefix(&token.0[..]),
-                                        )
-                                    {
-                                        continue;
-                                    }
-                                    let arena = unsafe {
-                                        NonNull::new_unchecked(
-                                            &mut self.stack_arena as *mut BufferArena<StackItem>,
-                                        )
-                                    };
-                                    let mut temp_stack =
-                                        self.stack_arena.allocate_a_stack(stack.len());
-                                    temp_stack.copy_from_slice(stack.as_slice());
-                                    let mut cache;
-                                    if self.stack_to_bytes_cache_enabled {
-                                        cache = Some(&mut stack_to_bytes_cache);
-                                    } else {
-                                        cache = None;
-                                    }
-                                    let result = Self::find_stacks_matching_bytes(
-                                        arena,
-                                        &mut temp_stack,
-                                        &self.grammar,
-                                        Some(&token.0[..]),
-                                        false,
-                                        &mut cache,
-                                        &mut |_, _| {},
-                                        &mut |bytes, index| {
-                                            if index < usize::MAX {
-                                                failed_prefixs.insert(
-                                                    SliceU8Wrapper(&bytes[..index + 1]),
-                                                    (),
-                                                );
-                                            }
-                                        },
-                                    );
-                                    if result {
-                                        self.token_ids.insert(*token_id as usize);
-                                    }
-                                    self.stack_arena.clear();
+                let entry = self.stacks_to_token_ids.entry(self.stacks.clone());
+                match entry {
+                    Entry::Occupied(value) => Ok(PossibleTokensResult::Continue(value.into_mut())),
+                    Entry::Vacant(entry) => {
+                        let mut stack_to_bytes_cache: FxHashMap<
+                            (FixedBuffer<StackItem>, Box<[u8]>),
+                            bool,
+                        > = FxHashMap::default();
+                        for stack in self.stacks.iter() {
+                            // let now = Instant::now();
+                            let mut failed_prefixs: Trie<SliceU8Wrapper, ()> = Trie::new();
+                            let iter = BufferOrTreeIter::new(
+                                &self.tokens_buffer,
+                                &self.vocabulary.token_to_id,
+                                &self.grammar.terminals_trie,
+                                *stack.last().unwrap(),
+                            );
+                            for (token, token_id) in iter {
+                                if self.token_ids.contains(*token_id as usize)
+                                    || failed_prefixs.contains_key(
+                                        failed_prefixs.longest_common_prefix(&token.0[..]),
+                                    )
+                                {
+                                    continue;
                                 }
-                                // println!("stack: {:?}, {:?}", stack, now.elapsed());
+                                let arena = unsafe {
+                                    NonNull::new_unchecked(
+                                        &mut self.stack_arena as *mut BufferArena<StackItem>,
+                                    )
+                                };
+                                let mut temp_stack =
+                                    self.stack_arena.allocate_a_stack(stack.len())?;
+                                temp_stack.copy_from_slice(stack.as_slice());
+                                let mut cache;
+                                if self.stack_to_bytes_cache_enabled {
+                                    cache = Some(&mut stack_to_bytes_cache);
+                                } else {
+                                    cache = None;
+                                }
+                                let result = Self::find_stacks_matching_bytes(
+                                    arena,
+                                    &mut temp_stack,
+                                    &self.grammar,
+                                    Some(&token.0[..]),
+                                    false,
+                                    &mut cache,
+                                    &mut |_, _| {},
+                                    &mut |bytes, index| {
+                                        if index < usize::MAX {
+                                            failed_prefixs
+                                                .insert(SliceU8Wrapper(&bytes[..index + 1]), ());
+                                        }
+                                    },
+                                )?;
+                                if result {
+                                    self.token_ids.insert(*token_id as usize);
+                                }
+                                self.stack_arena.clear();
                             }
-                            self.token_ids.clone()
-                        }),
-                )
+                            // println!("stack: {:?}, {:?}", stack, now.elapsed());
+                        }
+                        entry.insert(self.token_ids.clone());
+                        Ok(PossibleTokensResult::Continue(&self.token_ids))
+                    }
+                }
             }
         }
     }
-    #[must_use]
-    pub fn accept_a_token(&mut self, token_id: Option<u32>) -> AcceptTokenResult {
+    pub fn accept_a_token(&mut self, token_id: Option<u32>) -> Result<AcceptTokenResult, Error> {
         let mut find_stacks_matching_bytes = |bytes| {
             let len = self.stacks.len();
             let mut accepted = false;
@@ -324,7 +326,7 @@ impl Sampler {
                 let arena = unsafe {
                     NonNull::new_unchecked(&mut self.stack_arena as *mut BufferArena<StackItem>)
                 };
-                let mut stack = self.stack_arena.allocate_a_stack(self.stacks[i].len());
+                let mut stack = self.stack_arena.allocate_a_stack(self.stacks[i].len())?;
                 stack.copy_from_slice(&self.stacks[i]);
                 let stack_to_bytes_cache: &mut FxHashMap<
                     (FixedBuffer<StackItem>, Box<[u8]>),
@@ -356,7 +358,7 @@ impl Sampler {
                                 }
                             },
                             &mut |_, _| {},
-                        );
+                        )?;
                     }
                     None => {
                         continue;
@@ -369,19 +371,19 @@ impl Sampler {
             }
             if accepted {
                 if self.stacks.is_empty() || self.stacks.iter().all(|x| x.is_empty()) {
-                    return AcceptTokenResult::End;
+                    return Ok(AcceptTokenResult::End);
                 }
-                AcceptTokenResult::Continue
+                Ok(AcceptTokenResult::Continue)
             } else {
-                AcceptTokenResult::Failed
+                Ok(AcceptTokenResult::Failed)
             }
         };
         let result;
         let bytes = token_id.map(|id| self.vocabulary.id_to_token[&id].as_slice());
         if bytes.is_some() {
-            result = find_stacks_matching_bytes(bytes);
+            result = find_stacks_matching_bytes(bytes)?;
             if result == AcceptTokenResult::Failed || result == AcceptTokenResult::End {
-                return result;
+                return Ok(result);
             }
         }
         find_stacks_matching_bytes(None)
@@ -575,7 +577,7 @@ impl Sampler {
         >,
         after_finding_stack: &mut F1,
         after_match_failed: &mut F2,
-    ) -> bool
+    ) -> Result<bool, Error>
     where
         F1: FnMut(&[Option<StackItem>], Option<StackItem>),
         F2: FnMut(&'b [u8], usize),
@@ -595,7 +597,7 @@ impl Sampler {
                     SimplifiedExpressions::Expressions(expressions) => {
                         for expression in expressions.iter() {
                             let temp_stack = &mut unsafe { arena.as_mut() }
-                                .allocate_a_stack(stack.len() + expression.len());
+                                .allocate_a_stack(stack.len() + expression.len())?;
                             temp_stack.copy_from_raw_slice(stack);
                             for term in expression.iter().rev() {
                                 temp_stack.push(match term {
@@ -616,16 +618,16 @@ impl Sampler {
                                 stack_to_bytes_cache,
                                 after_finding_stack,
                                 after_match_failed,
-                            );
+                            )?;
                             found |= temp;
                             if !find_all && found {
-                                return found;
+                                return Ok(found);
                             }
                         }
                     }
                     SimplifiedExpressions::Terminals(node_id) => {
                         let temp_stack =
-                            &mut unsafe { arena.as_mut() }.allocate_a_stack(stack.len() + 1);
+                            &mut unsafe { arena.as_mut() }.allocate_a_stack(stack.len() + 1)?;
                         temp_stack.copy_from_raw_slice(stack);
                         temp_stack.push(StackItem::Terminals(*node_id));
                         found |= Self::find_stacks_matching_bytes(
@@ -637,13 +639,13 @@ impl Sampler {
                             stack_to_bytes_cache,
                             after_finding_stack,
                             after_match_failed,
-                        );
+                        )?;
                         if !find_all && found {
-                            return found;
+                            return Ok(found);
                         }
                     }
                 }
-                found
+                Ok(found)
             };
         match stack.pop() {
             Some(value) => match value {
@@ -662,12 +664,12 @@ impl Sampler {
                     match Self::match_stack_to_bytes(stack, bytes, trie, find_all) {
                         BytesMatchResults::Failed(index) => {
                             after_match_failed(bytes.unwrap(), index);
-                            false
+                            Ok(false)
                         }
                         BytesMatchResults::Matches(possible_results) => {
                             if possible_results.is_empty() {
                                 after_finding_stack(stack.as_raw_slice(), None);
-                                return true;
+                                return Ok(true);
                             }
                             let mut flag = false;
                             for result in possible_results.iter() {
@@ -678,7 +680,7 @@ impl Sampler {
                                     );
                                     flag |= true;
                                     if !find_all {
-                                        return true;
+                                        return Ok(true);
                                     }
                                 }
                             }
@@ -695,7 +697,7 @@ impl Sampler {
                                         ),
                                     };
                                     let mut temp_stack = unsafe { arena.as_mut() }
-                                        .allocate_a_stack((result.stack_offset + 1) as usize);
+                                        .allocate_a_stack((result.stack_offset + 1) as usize)?;
                                     temp_stack.copy_from_raw_slice(
                                         &stack[..result.stack_offset as usize],
                                     );
@@ -722,7 +724,7 @@ impl Sampler {
                                                 ),
                                                 &mut Some(stack_to_bytes_cache),
                                                 after_finding_stack,
-                                            );
+                                            )?;
                                             stack_to_bytes_cache.insert(k, temp);
                                         }
                                     } else {
@@ -736,20 +738,20 @@ impl Sampler {
                                             ),
                                             &mut None,
                                             after_finding_stack,
-                                        );
+                                        )?;
                                     }
                                     flag |= temp;
                                     if !find_all && flag {
-                                        return true;
+                                        return Ok(true);
                                     }
                                 }
                             }
-                            flag
+                            Ok(flag)
                         }
                     }
                 }
             },
-            None => false,
+            None => Ok(false),
         }
     }
 }

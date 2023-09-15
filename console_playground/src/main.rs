@@ -22,7 +22,7 @@ struct Args {
     arena_capacity: usize,
     /// set the temp arena capacity used to expand each except!(excepted_literals).
     #[arg(short, long, default_value_t = 1024)]
-    temp_arena_capacity: usize,
+    grammar_arena_capacity: usize,
     /// enable stack to bytes cache. When a nonterminal directly expands to a lot of nonterminals and terminals, it may be slow.
     #[arg(short, long, default_value_t = true, action = clap::ArgAction::Set)]
     bytes_cache: bool,
@@ -36,20 +36,20 @@ fn main() {
     println!("{:?}", args);
     let input =
         fs::read_to_string("./assets/grammar.bnf").expect("./assets/grammar.bnf should exist.");
-    let vocabulary = utils::read_rwkv_world_vocab("./assets/vocab.txt");
-    let grammar = grammar::Grammar::new(&input, vocabulary.clone(), args.temp_arena_capacity).unwrap();
+    let vocabulary = utils::read_rwkv_world_vocab("./assets/vocab.txt").unwrap();
+    let grammar = grammar::Grammar::new(&input, vocabulary.clone(), args.grammar_arena_capacity).unwrap();
     let mut machine = Sampler::new(
         grammar,
         args.start_nonterminal.clone(),
         vocabulary.clone(),
         args.arena_capacity,
         args.bytes_cache,
-    );
+    ).unwrap();
     if args.stacks_display {
         println!("Stacks: {}", machine);
     }
 
-    if let PossibleTokensResult::Continue(result) = machine.all_possible_next_tokens(None) {
+    if let PossibleTokensResult::Continue(result) = machine.all_possible_next_tokens(None).unwrap() {
         let result: Vec<&str> = vocabulary
             .get_token_strings_from_token_ids(result)
             .collect();
@@ -88,7 +88,7 @@ fn main() {
             let end = now.elapsed();
             times.push(end.as_secs_f64());
             println!("Time used: {:?}", end);
-            let result: Vec<&str> = match result {
+            let result: Vec<&str> = match result.unwrap() {
                 PossibleTokensResult::Continue(result) => vocabulary
                     .get_token_strings_from_token_ids(result)
                     .collect(),
