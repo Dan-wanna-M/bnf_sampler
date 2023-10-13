@@ -19,7 +19,7 @@ Tokens must be encoded in UTF-8.
 Or you can download the pre-compiled binaries from the release page and run.
 
 ## Use in Your Project
-To use in your own rust project, simply add `bnf_sampler = "0.1.2"` as a dependency in your `Cargo.toml`.
+To use in your own rust project, simply add `bnf_sampler = "0.3.1"` as a dependency in your `Cargo.toml`.
 
 ## Grammar schema
 In this project, a slightly modified version of BNF is used. The key differences are:
