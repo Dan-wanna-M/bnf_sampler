@@ -285,6 +285,7 @@ impl Grammar {
             terminals_trie: terminals_arena,
             nonterminal_to_token_ids,
         });
+        
         let mut_grammar = unsafe { &mut *(Arc::as_ptr(&grammar) as *mut Grammar) };
         if except_present {
             for nonterminal in excepts.iter() {
@@ -315,8 +316,7 @@ impl Grammar {
                         match temp_machine.all_possible_next_tokens(None)? {
                         PossibleTokensResult::Continue(tokens) => {
                             let iter = vocabulary
-                                .get_token_strings_from_token_ids(tokens)
-                                .map(|x| x.to_string())
+                                .get_token_from_token_ids(tokens)
                                 .collect_vec();
                             add_tokens(
                                 &mut simplified_grammar,
@@ -324,11 +324,11 @@ impl Grammar {
                                 &mut_grammar.nonterminal_to_terminal_id,
                                 &mut mut_grammar.nonterminal_to_token_ids,
                                 nonterminal,
-                                Some(&(iter.iter().map(|x| x.as_bytes()).collect_vec())),
+                                Some(&iter),
                             );
                             for token in iter {
                                 mut_grammar.terminals_trie.except_literal(
-                                    token.as_bytes(),
+                                    token,
                                     mut_grammar.nonterminal_to_terminal_id[nonterminal],
                                 );
                             }

@@ -1,9 +1,4 @@
-<start> ::= <sequence>'\n'
-<sequence> ::= <except!('\n')>|<except!('\n')><sequence>
-<digits> ::= <digit>|<digit><digits>
-<digit> ::= 'ar'
-<test> ::= "atistics"
-<escape> ::= '\x00'|'\x01'
-<base> ::='a'|'b'|'c'|'d'|'e'|'f'|'g'|'h'|'i'|'j'|'k'|'l'|'m'|'n'|'o'|'p'|'q'|'r'|'s'|'t'|'u'|'v'|'w'|'x'|'y'|'z'|' '
-<char> ::='我是野兽'|'我，黄鹤'|'一'|'个'|'是'|'我'
-<c> ::= '土'
+<start>::=<string>
+<string>::='"'<content>'"'
+<content>::=<except!([escaped_literals])>|<except!([escaped_literals])><content>|'\\"'<content>|'\\"'
+<escaped_literals>::='\t'|'\n'|'\r'|'"'
