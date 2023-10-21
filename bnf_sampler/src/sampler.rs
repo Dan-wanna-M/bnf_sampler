@@ -17,9 +17,11 @@ use bit_set::BitSet;
 use qp_trie::Trie;
 use rustc_hash::FxHashMap;
 use rustc_hash::FxHashSet;
+use std::cmp;
 use std::collections::hash_map::Entry;
 use std::ptr::NonNull;
 use std::sync::Arc;
+use std::time::Instant;
 use std::vec;
 
 const INVALID_INDEX: i32 = -1;
@@ -255,7 +257,7 @@ impl Sampler {
                             bool,
                         > = FxHashMap::default();
                         for stack in self.stacks.iter() {
-                            // let now = Instant::now();
+                            let now = Instant::now();
                             let mut failed_prefixs: Trie<SliceU8Wrapper, ()> = Trie::new();
                             let iter = BufferOrTreeIter::new(
                                 &self.tokens_buffer,
@@ -263,6 +265,7 @@ impl Sampler {
                                 &self.grammar.terminals_trie,
                                 *stack.last().unwrap(),
                             );
+
                             for (token, token_id) in iter {
                                 if self.token_ids.contains(*token_id as usize)
                                     || failed_prefixs.contains_key(
@@ -271,6 +274,7 @@ impl Sampler {
                                 {
                                     continue;
                                 }
+
                                 let arena = unsafe {
                                     NonNull::new_unchecked(
                                         &mut self.stack_arena as *mut BufferArena<StackItem>,
@@ -285,27 +289,30 @@ impl Sampler {
                                 } else {
                                     cache = None;
                                 }
+                                let mut shortest_failed_byte_index = usize::MAX;
                                 let result = Self::find_stacks_matching_bytes(
                                     arena,
                                     &mut temp_stack,
                                     &self.grammar,
                                     Some(&token.0[..]),
+                                    0,
                                     false,
                                     &mut cache,
                                     &mut |_, _| {},
-                                    &mut |bytes, index| {
-                                        if index < usize::MAX {
-                                            failed_prefixs
-                                                .insert(SliceU8Wrapper(&bytes[..index + 1]), ());
-                                        }
-                                    },
+                                    &mut shortest_failed_byte_index
                                 )?;
                                 if result {
                                     self.token_ids.insert(*token_id as usize);
                                 }
+                                else {
+                                        failed_prefixs
+                                            .insert(SliceU8Wrapper(&token.0[..shortest_failed_byte_index + 1]), ());
+                                }
                                 self.stack_arena.clear();
+                                // println!("failed: {:?}",failed_prefixs);
                             }
-                            // println!("stack: {:?}, {:?}", stack, now.elapsed());
+                            println!("stack: {:?}, {:?}", stack, now.elapsed());
+                            // println!("{:?}",failed_prefixs);
                         }
                         entry.insert(self.token_ids.clone());
                         Ok(PossibleTokensResult::Continue(&self.token_ids))
@@ -341,6 +348,7 @@ impl Sampler {
                             &mut stack,
                             &self.grammar,
                             bytes,
+                            0,
                             true,
                             &mut cache,
                             &mut |temp_stack: &[Option<StackItem>], top: Option<StackItem>| {
@@ -353,7 +361,7 @@ impl Sampler {
                                     self.stacks.push(new_vec);
                                 }
                             },
-                            &mut |_, _| {},
+                            &mut 0,
                         )?;
                     }
                     None => {
@@ -387,6 +395,7 @@ impl Sampler {
     fn match_stack_to_bytes(
         stack: &FixedBuffer<StackItem>,
         bytes: Option<&[u8]>,
+        remaining_byte_start: usize,
         trie: &TerminalsTrie,
         find_all: bool,
     ) -> BytesMatchResults {
@@ -541,7 +550,7 @@ impl Sampler {
                 _match_stack_to_bytes(
                     stack,
                     bytes,
-                    0,
+                    remaining_byte_start,
                     trie,
                     stack_offset,
                     find_all,
@@ -549,6 +558,7 @@ impl Sampler {
                     &mut shortest_failed_index,
                     &mut result,
                 );
+                
                 if result.is_empty() {
                     BytesMatchResults::Failed(shortest_failed_index)
                 } else {
@@ -560,21 +570,21 @@ impl Sampler {
 
     #[allow(clippy::too_many_arguments)]
     #[allow(clippy::type_complexity)]
-    fn find_stacks_matching_bytes<'b, F1, F2>(
+    fn find_stacks_matching_bytes<'b, F1>(
         mut arena: NonNull<BufferArena<StackItem>>,
         stack: &mut FixedBuffer<StackItem>,
         grammar: &Grammar,
         bytes: Option<&'b [u8]>,
+        remaining_byte_start: usize,
         find_all: bool,
         stack_to_bytes_cache: &mut Option<
             &mut FxHashMap<(FixedBuffer<StackItem>, Box<[u8]>), bool>,
         >,
         after_finding_stack: &mut F1,
-        after_match_failed: &mut F2,
+        shortest_failed_byte_index: &mut usize,
     ) -> Result<bool, Error>
     where
-        F1: FnMut(&[Option<StackItem>], Option<StackItem>),
-        F2: FnMut(&'b [u8], usize),
+        F1: FnMut(&[Option<StackItem>], Option<StackItem>)
     {
         let trie = &grammar.terminals_trie;
         let mut _find_stacks_matching_bytes =
@@ -582,6 +592,8 @@ impl Sampler {
              top: NonterminalID,
              stack: &[Option<StackItem>],
              bytes: Option<&'b [u8]>,
+             remaining_byte_start:usize,
+             shortest_failed_byte_index: &mut usize,
              stack_to_bytes_cache: &mut Option<
                 &mut FxHashMap<(FixedBuffer<StackItem>, Box<[u8]>), bool>,
             >,
@@ -608,10 +620,11 @@ impl Sampler {
                                 temp_stack,
                                 grammar,
                                 bytes,
+                                remaining_byte_start,
                                 find_all,
                                 stack_to_bytes_cache,
                                 after_finding_stack,
-                                after_match_failed,
+                                shortest_failed_byte_index,
                             )?;
                             found |= temp;
                             if !find_all && found {
@@ -629,10 +642,11 @@ impl Sampler {
                             temp_stack,
                             grammar,
                             bytes,
+                            remaining_byte_start,
                             find_all,
                             stack_to_bytes_cache,
                             after_finding_stack,
-                            after_match_failed,
+                            shortest_failed_byte_index,
                         )?;
                         if !find_all && found {
                             return Ok(found);
@@ -649,15 +663,17 @@ impl Sampler {
                         top,
                         stack.as_raw_slice(),
                         bytes,
+                        remaining_byte_start,
+                        shortest_failed_byte_index,
                         stack_to_bytes_cache,
                         after_finding_stack,
                     )
                 }
                 StackItem::Terminal(_) | StackItem::Terminals(_) => {
                     stack.push(value);
-                    match Self::match_stack_to_bytes(stack, bytes, trie, find_all) {
+                    match Self::match_stack_to_bytes(stack, bytes, remaining_byte_start,trie, find_all) {
                         BytesMatchResults::Failed(index) => {
-                            after_match_failed(bytes.unwrap(), index);
+                            *shortest_failed_byte_index = cmp::min(*shortest_failed_byte_index, index);
                             Ok(false)
                         }
                         BytesMatchResults::Matches(possible_results) => {
@@ -712,10 +728,9 @@ impl Sampler {
                                                 arena,
                                                 top,
                                                 &stack[..result.stack_offset as usize],
-                                                Some(
-                                                    &(bytes.unwrap()
-                                                        [result.remaining_bytes_start as usize..]),
-                                                ),
+                                               bytes,
+                                               result.remaining_bytes_start as usize,
+                                               shortest_failed_byte_index,
                                                 &mut Some(stack_to_bytes_cache),
                                                 after_finding_stack,
                                             )?;
@@ -726,10 +741,9 @@ impl Sampler {
                                             arena,
                                             top,
                                             &stack[..result.stack_offset as usize],
-                                            Some(
-                                                &(bytes.unwrap()
-                                                    [result.remaining_bytes_start as usize..]),
-                                            ),
+                                            bytes,
+                                            result.remaining_bytes_start as usize,
+                                            shortest_failed_byte_index,
                                             &mut None,
                                             after_finding_stack,
                                         )?;

@@ -70,7 +70,7 @@ fn main() {
         std::io::stdin()
             .read_line(&mut input)
             .expect("Input should exist");
-        let input = utils::fix_utf8_escape(input.trim());
+        let input = utils::fix_utf8_escape(input.trim_end());
         if args.input_display {
             println!("Input: {:?}", input);
         }
