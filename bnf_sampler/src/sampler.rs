@@ -311,7 +311,7 @@ impl Sampler {
                                 self.stack_arena.clear();
                                 // println!("failed: {:?}",failed_prefixs);
                             }
-                            println!("stack: {:?}, {:?}", stack, now.elapsed());
+                            // println!("stack: {:?}, {:?}", stack, now.elapsed());
                             // println!("{:?}",failed_prefixs);
                         }
                         entry.insert(self.token_ids.clone());
@@ -374,7 +374,7 @@ impl Sampler {
                 self.stacks.swap_remove(i);
             }
             if accepted {
-                if self.stacks.is_empty() || self.stacks.iter().all(|x| x.is_empty()) {
+                if self.stacks.is_empty() || self.stacks.iter().any(|x| x.is_empty()) {
                     return Ok(AcceptTokenResult::End);
                 }
                 Ok(AcceptTokenResult::Continue)

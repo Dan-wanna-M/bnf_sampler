@@ -79,10 +79,10 @@ In this project, a slightly modified version of BNF is used. The key differences
 The possible tokens listed are the tokens that can be accepted by the sampler in its current state.
 The following rule defines whether a token is listed in the return value of `Sampler::all_possible_tokens` with a given BNF:
 
-- The sampler has not terminated or gets into an invalid state. In other words, there are still terms not consumed in the sampler, and the current input token can be accepted by the sampler.
+- The sampler has not terminated or gets into an invalid state. In other words,  the current input token can be accepted by the sampler, and no path exists such that all the terminals and nonterminals are consumed in the path.
 
-  - e.g. With `<start>::=<A><B><C>, <A>::='cryscan', <B>::='hex', <C>::='wanicca'`,`<start>` will create a sampler that terminates after `cryscan`,`hex`,`wanicca` are inputed in this exact sequence, and goes into an invalid state otherwise.
-  - e.g. `<sequence>::=<any!>|<any!><sequence>` will create a sampler that never terminate as `<sequence>` can always become `<any!><sequence>`.
+  - e.g. With `<start>::=<A><B><C>, <A>::='boy', <B>::='next', <C>::='door'`,`<start>` will create a sampler that terminates after `boy`,`next`,`door` are inputed in this exact sequence, and goes into an invalid state otherwise.
+  - e.g. `<sequence>::=<any!>|<any!><sequence>` will create a sampler that terminates after any input token because of the path where `<sequence>` become `<any!>`. In other words, `<any!>` is the only nonterminal in the path and is consumed.
 
 - For a given terminal, only the longest possible token is listed.
 
