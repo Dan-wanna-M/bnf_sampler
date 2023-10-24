@@ -61,7 +61,7 @@ impl qp_trie::Break for U8ArrayWrapper {
     }
 }
 
-#[derive(PartialEq, Clone, Debug)]
+#[derive(PartialEq, Clone, Debug, Eq, Hash)]
 pub(crate) struct SliceU8Wrapper<'a>(pub &'a [u8]);
 
 impl<'a> Borrow<[u8]> for SliceU8Wrapper<'a> {

@@ -258,7 +258,7 @@ impl Sampler {
                         > = FxHashMap::default();
                         for stack in self.stacks.iter() {
                             let now = Instant::now();
-                            let mut failed_prefixs: Trie<SliceU8Wrapper, ()> = Trie::new();
+                            let mut accepted_prefixs: Trie<SliceU8Wrapper, ()> = Trie::new();
                             let iter = BufferOrTreeIter::new(
                                 &self.tokens_buffer,
                                 &self.vocabulary.token_to_id,
@@ -267,14 +267,14 @@ impl Sampler {
                             );
 
                             for (token, token_id) in iter {
-                                if self.token_ids.contains(*token_id as usize)
-                                    || failed_prefixs.contains_key(
-                                        failed_prefixs.longest_common_prefix(&token.0[..]),
-                                    )
-                                {
+                                if self.token_ids.contains(*token_id as usize) {
                                     continue;
                                 }
-
+                                 
+                                if accepted_prefixs.contains_key(&token.0[..]) {
+                                    self.token_ids.insert(*token_id as usize);
+                                    continue;
+                                }
                                 let arena = unsafe {
                                     NonNull::new_unchecked(
                                         &mut self.stack_arena as *mut BufferArena<StackItem>,
@@ -289,7 +289,7 @@ impl Sampler {
                                 } else {
                                     cache = None;
                                 }
-                                let mut shortest_failed_byte_index = usize::MAX;
+                                let mut shortest_failed_byte_index = 0;
                                 let result = Self::find_stacks_matching_bytes(
                                     arena,
                                     &mut temp_stack,
@@ -299,20 +299,22 @@ impl Sampler {
                                     false,
                                     &mut cache,
                                     &mut |_, _| {},
-                                    &mut shortest_failed_byte_index
+                                    &mut shortest_failed_byte_index,
                                 )?;
                                 if result {
                                     self.token_ids.insert(*token_id as usize);
-                                }
-                                else {
-                                        failed_prefixs
-                                            .insert(SliceU8Wrapper(&token.0[..shortest_failed_byte_index + 1]), ());
+                                    accepted_prefixs.insert(SliceU8Wrapper(&token.0[..]), ());
+                                } else {
+                                    accepted_prefixs.insert(
+                                        SliceU8Wrapper(&token.0[..shortest_failed_byte_index]),
+                                        (),
+                                    );
                                 }
                                 self.stack_arena.clear();
                                 // println!("failed: {:?}",failed_prefixs);
                             }
                             // println!("stack: {:?}, {:?}", stack, now.elapsed());
-                            // println!("{:?}",failed_prefixs);
+                            // println!("{:?}",accepted_prefixs);
                         }
                         entry.insert(self.token_ids.clone());
                         Ok(PossibleTokensResult::Continue(&self.token_ids))
@@ -558,7 +560,7 @@ impl Sampler {
                     &mut shortest_failed_index,
                     &mut result,
                 );
-                
+
                 if result.is_empty() {
                     BytesMatchResults::Failed(shortest_failed_index)
                 } else {
@@ -584,7 +586,7 @@ impl Sampler {
         shortest_failed_byte_index: &mut usize,
     ) -> Result<bool, Error>
     where
-        F1: FnMut(&[Option<StackItem>], Option<StackItem>)
+        F1: FnMut(&[Option<StackItem>], Option<StackItem>),
     {
         let trie = &grammar.terminals_trie;
         let mut _find_stacks_matching_bytes =
@@ -592,7 +594,7 @@ impl Sampler {
              top: NonterminalID,
              stack: &[Option<StackItem>],
              bytes: Option<&'b [u8]>,
-             remaining_byte_start:usize,
+             remaining_byte_start: usize,
              shortest_failed_byte_index: &mut usize,
              stack_to_bytes_cache: &mut Option<
                 &mut FxHashMap<(FixedBuffer<StackItem>, Box<[u8]>), bool>,
@@ -671,9 +673,16 @@ impl Sampler {
                 }
                 StackItem::Terminal(_) | StackItem::Terminals(_) => {
                     stack.push(value);
-                    match Self::match_stack_to_bytes(stack, bytes, remaining_byte_start,trie, find_all) {
+                    match Self::match_stack_to_bytes(
+                        stack,
+                        bytes,
+                        remaining_byte_start,
+                        trie,
+                        find_all,
+                    ) {
                         BytesMatchResults::Failed(index) => {
-                            *shortest_failed_byte_index = cmp::min(*shortest_failed_byte_index, index);
+                            *shortest_failed_byte_index =
+                                cmp::max(*shortest_failed_byte_index, index);
                             Ok(false)
                         }
                         BytesMatchResults::Matches(possible_results) => {
@@ -728,9 +737,9 @@ impl Sampler {
                                                 arena,
                                                 top,
                                                 &stack[..result.stack_offset as usize],
-                                               bytes,
-                                               result.remaining_bytes_start as usize,
-                                               shortest_failed_byte_index,
+                                                bytes,
+                                                result.remaining_bytes_start as usize,
+                                                shortest_failed_byte_index,
                                                 &mut Some(stack_to_bytes_cache),
                                                 after_finding_stack,
                                             )?;
