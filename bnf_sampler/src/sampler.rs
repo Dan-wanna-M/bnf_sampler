@@ -7,7 +7,6 @@ use crate::trie::TerminalsTrie;
 use crate::trie::TerminalsTrieIter;
 use crate::trie::TrieNodeID;
 use crate::utils::NonterminalID;
-use crate::utils::SliceU8Wrapper;
 use crate::utils::U8ArrayWrapper;
 use crate::vocabulary::Vocabulary;
 use anyhow::anyhow;
@@ -17,7 +16,6 @@ use bit_set::BitSet;
 use qp_trie::Trie;
 use rustc_hash::FxHashMap;
 use rustc_hash::FxHashSet;
-use std::cmp;
 use std::collections::hash_map::Entry;
 use std::ptr::NonNull;
 use std::sync::Arc;
@@ -283,7 +281,9 @@ impl Sampler {
                                 } else {
                                     cache = None;
                                 }
-                                let result = Self::find_stacks_matching_bytes(
+                                let result = Self::find_stacks_matching_bytes::<
+                                    fn(&[Option<StackItem>], Option<StackItem>),
+                                >(
                                     arena,
                                     &mut temp_stack,
                                     &self.grammar,
@@ -291,7 +291,7 @@ impl Sampler {
                                     0,
                                     false,
                                     &mut cache,
-                                    &mut |_, _| {},
+                                    &mut None,
                                 )?;
                                 if result {
                                     self.token_ids.insert(*token_id as usize);
@@ -339,16 +339,18 @@ impl Sampler {
                             0,
                             true,
                             &mut cache,
-                            &mut |temp_stack: &[Option<StackItem>], top: Option<StackItem>| {
-                                let mut new_vec = Vec::with_capacity(temp_stack.len() + 1);
-                                new_vec.extend(temp_stack.iter().map(|x| x.unwrap()));
-                                if let Some(top) = top {
-                                    new_vec.push(top);
-                                }
-                                if !self.stacks[len..].iter().any(|x| *x == new_vec) {
-                                    self.stacks.push(new_vec);
-                                }
-                            },
+                            &mut Some(
+                                |temp_stack: &[Option<StackItem>], top: Option<StackItem>| {
+                                    let mut new_vec = Vec::with_capacity(temp_stack.len() + 1);
+                                    new_vec.extend(temp_stack.iter().map(|x| x.unwrap()));
+                                    if let Some(top) = top {
+                                        new_vec.push(top);
+                                    }
+                                    if !self.stacks[len..].iter().any(|x| *x == new_vec) {
+                                        self.stacks.push(new_vec);
+                                    }
+                                },
+                            ),
                         )?;
                     }
                     None => {
@@ -558,7 +560,7 @@ impl Sampler {
         stack_to_bytes_cache: &mut Option<
             &mut FxHashMap<(FixedBuffer<StackItem>, Box<[u8]>), bool>,
         >,
-        after_finding_stack: &mut F1,
+        after_finding_stack: &mut Option<F1>,
     ) -> Result<bool, Error>
     where
         F1: FnMut(&[Option<StackItem>], Option<StackItem>),
@@ -573,7 +575,7 @@ impl Sampler {
              stack_to_bytes_cache: &mut Option<
                 &mut FxHashMap<(FixedBuffer<StackItem>, Box<[u8]>), bool>,
             >,
-             after_finding_stack: &mut F1| {
+             after_finding_stack: &mut Option<F1>| {
                 let mut found = false;
                 match &grammar.nonterminal_id_to_expression[&top] {
                     SimplifiedExpressions::Expressions(expressions) => {
@@ -654,16 +656,20 @@ impl Sampler {
                         BytesMatchResults::Failed => Ok(false),
                         BytesMatchResults::Matches(possible_results) => {
                             if possible_results.is_empty() {
-                                after_finding_stack(stack.as_raw_slice(), None);
+                                if let Some(f) = after_finding_stack.as_mut() {
+                                    f(stack.as_raw_slice(), None)
+                                }
                                 return Ok(true);
                             }
                             let mut flag = false;
                             for result in possible_results.iter() {
                                 if result.remaining_bytes_start == INVALID_INDEX {
-                                    after_finding_stack(
-                                        &stack[..result.stack_offset as usize],
-                                        result.modified_item_at_offset,
-                                    );
+                                    if let Some(f) = after_finding_stack.as_mut() {
+                                        f(
+                                            &stack[..result.stack_offset as usize],
+                                            result.modified_item_at_offset,
+                                        )
+                                    }
                                     flag |= true;
                                     if !find_all {
                                         return Ok(true);
