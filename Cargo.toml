@@ -2,7 +2,8 @@
 
 members = [
     "console_playground",
-    "bnf_sampler"
+    "bnf_sampler",
+    "bnf_sampler_pybinding"
 ]
 [profile.release]
 debug = false

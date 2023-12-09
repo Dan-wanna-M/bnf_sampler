@@ -102,7 +102,7 @@ pub fn read_rwkv_world_vocab(file_name: &str) -> Result<Arc<Vocabulary>, Error> 
         ))?;
         let token_id = line[..start]
             .parse::<u32>()
-            .unwrap_or_else(|x| panic!("{line} cannot be parsed due to {x}."));
+            .map_err(|x| anyhow!("{line} cannot be parsed due to {x}."))?;
         start += 1;
         end -= 1;
         if line.chars().nth(start).unwrap() == 'b' {
