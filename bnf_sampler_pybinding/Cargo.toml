@@ -5,7 +5,7 @@ edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [lib]
-name = "bnf_sampler"
+name = "bnf_sampler_py"
 crate-type = ["cdylib"]
 
 [dependencies]

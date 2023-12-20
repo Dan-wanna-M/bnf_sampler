@@ -176,7 +176,7 @@ impl Sampler {
 }
 
 #[pymodule]
-#[pyo3(name = "bnf_sampler")]
+#[pyo3(name = "bnf_sampler_py")]
 pub fn bnf_sampler_py(_py: Python<'_>, m: &PyModule) -> PyResult<()> {
     m.add_class::<Vocabulary>()?;
     m.add_function(wrap_pyfunction!(read_rwkv_world_vocab, m)?)?;
