@@ -95,7 +95,7 @@ dependencies = [
 
 [[package]]
 name = "bnf_sampler"
-version = "0.3.5"
+version = "0.3.6"
 dependencies = [
  "anyhow",
  "bit-set",
@@ -212,9 +212,9 @@ checksum = "95505c38b4572b2d910cecb0281560f54b440a19336cbbcb27bf6ce6adc6f5a8"
 
 [[package]]
 name = "itertools"
-version = "0.11.0"
+version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b1c173a5686ce8bfa551b3563d0c2170bf24ca44da99c7ca4bfdab5418c3fe57"
+checksum = "ba291022dbbd398a455acf126c1e341954079855bc60dfdda641363bd6922569"
 dependencies = [
  "either",
 ]
