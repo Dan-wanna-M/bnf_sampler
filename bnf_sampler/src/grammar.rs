@@ -81,7 +81,7 @@ impl Grammar {
             };
             simplified_grammar
                 .entry(key.clone())
-                .or_insert(FxHashSet::default())
+                .or_default()
                 .extend(i.rhs_iter().map(|x| {
                     let mut temp_vec: Vec<U8Term> = vec![];
                     let mut temp_string: Option<String> = None;
@@ -134,7 +134,7 @@ impl Grammar {
                         vocabulary
                             .token_to_id
                             .keys()
-                            .filter(|x| predicate(x))
+                            .filter(predicate)
                             .map(|k| vec![U8Term::Terminal(k.0.to_vec())])
                             .collect(),
                     );
@@ -285,7 +285,7 @@ impl Grammar {
             terminals_trie: terminals_arena,
             nonterminal_to_token_ids,
         });
-        
+
         let mut_grammar = unsafe { &mut *(Arc::as_ptr(&grammar) as *mut Grammar) };
         if except_present {
             for nonterminal in excepts.iter() {
