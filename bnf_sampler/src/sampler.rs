@@ -255,7 +255,7 @@ impl Sampler {
                             bool,
                         > = FxHashMap::default();
                         for stack in self.stacks.iter() {
-                            let now = Instant::now();
+                            let _now = Instant::now();
                             let iter = BufferOrTreeIter::new(
                                 &self.tokens_buffer,
                                 &self.vocabulary.token_to_id,

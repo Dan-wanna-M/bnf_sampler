@@ -6,6 +6,7 @@ use rustc_hash::FxHashMap;
 use std::borrow::Borrow;
 use std::fs::File;
 use std::io::{prelude::*, BufReader};
+use std::path::Path;
 use std::sync::Arc;
 
 use crate::vocabulary::Vocabulary;
@@ -85,9 +86,10 @@ impl<'a> qp_trie::Break for SliceU8Wrapper<'a> {
     }
 }
 
-/// Read the vocabulary from RWKV-world model series vocabulary file
-pub fn read_rwkv_world_vocab(file_name: &str) -> Result<Arc<Vocabulary>, Error> {
-    let file = File::open(file_name).unwrap();
+/// Read the vocabulary from RWKV-world model series vocabulary file.
+pub fn read_rwkv_world_vocab(path: impl AsRef<Path>) -> Result<Arc<Vocabulary>, Error> {
+    let path = path.as_ref();
+    let file = File::open(path).unwrap();
     let reader = BufReader::new(file);
     let mut id_to_token: FxHashMap<u32, Vec<u8>> = FxHashMap::default();
     let mut id_to_token_string: FxHashMap<u32, String> = FxHashMap::default();
@@ -95,14 +97,16 @@ pub fn read_rwkv_world_vocab(file_name: &str) -> Result<Arc<Vocabulary>, Error> 
     for line in reader.lines() {
         let line = line.unwrap();
         let mut start = line.find(' ').ok_or(anyhow!(
-            "Invalid format. Ensure this vocab file{file_name} belongs to RWKV world model."
+            "invalid format: ensure this is RWKV world model's vocab file {:?}",
+            path
         ))?;
         let mut end = line.rfind(' ').ok_or(anyhow!(
-            "Invalid format. Ensure this vocab file{file_name} belongs to RWKV world model."
+            "invalid format: ensure this is RWKV world model's vocab file {:?}",
+            path
         ))?;
         let token_id = line[..start]
             .parse::<u32>()
-            .map_err(|x| anyhow!("{line} cannot be parsed due to {x}."))?;
+            .map_err(|x| anyhow!("{line} cannot be parsed: {x}."))?;
         start += 1;
         end -= 1;
         if line.chars().nth(start).unwrap() == 'b' {
@@ -142,8 +146,7 @@ pub fn read_rwkv_world_vocab(file_name: &str) -> Result<Arc<Vocabulary>, Error> 
 ///
 ///     "\\u1234",  ["\\", "u", "1", "2", "3", "4"]
 pub fn fix_utf8_escape(token: &str) -> Vec<u8> {
-    let mut result: Vec<u8> = Vec::new();
-    result.reserve(token.as_bytes().len());
+    let mut result: Vec<u8> = Vec::with_capacity(token.as_bytes().len());
     let mut token = token;
     let convert_to_utf8 = |c: char, buffer: &mut Vec<u8>| {
         let mut temp = [0, 0, 0, 0];
