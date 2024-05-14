@@ -98,7 +98,7 @@ impl<'a> BufferOrTreeIter<'a> {
     ) -> Self {
         let tokens_buffer_iter = match current_top {
             StackItem::Terminal(terminal) => TokensIterType::SinglePrefix(
-                tokens_tree.iter_prefix(tokens_tree.longest_common_prefix(unsafe { &*terminal })),
+                tokens_tree.iter_prefix(&unsafe { &*terminal }[..1]),
             ),
             StackItem::Terminals(node_id) => {
                 let node = trie.get(node_id);
@@ -134,7 +134,7 @@ impl<'a> Iterator for BufferOrTreeIter<'a> {
                     result = keys.next().and_then(|key| {
                         let mut iter = self
                             .tokens_tree
-                            .iter_prefix(self.tokens_tree.longest_common_prefix(key));
+                            .iter_prefix(&key[..1]);
                         let temp = iter.next();
                         *trie_iter = Some(iter);
                         temp
@@ -145,7 +145,7 @@ impl<'a> Iterator for BufferOrTreeIter<'a> {
                         keys.next().and_then(|key| {
                             *trie_iter = self
                                 .tokens_tree
-                                .iter_prefix(self.tokens_tree.longest_common_prefix(key));
+                                .iter_prefix(&key[..1]);
                             trie_iter.next()
                         })
                     });
