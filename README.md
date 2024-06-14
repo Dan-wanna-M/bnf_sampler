@@ -2,6 +2,8 @@
 
 [![crates.io](https://img.shields.io/crates/v/bnf_sampler)](https://crates.io/crates/bnf_sampler)[![docs.rs](https://docs.rs/web-rwkv/badge.svg)](https://docs.rs/bnf_sampler)
 
+**This crate is deprecated. Use [kbnf](https://crates.io/crates/kbnf) instead.**
+
 This is a language model sampler that uses recursive descent algorithm to ensure tokens produced by a large language model follow a schema based on [Backus Naur Form(BNF)](https://en.wikipedia.org/wiki/Backus%E2%80%93Naur_form).
 
 Tokens must be encoded in UTF-8.
